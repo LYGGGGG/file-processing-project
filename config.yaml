@@ -46,6 +46,7 @@ list_api:
 
   pagination:
     # 请求是 pageNumber/pageSize，且 pageNumber=0，说明 0-based
+    # 说明：如果接口换了字段名，可以直接改这里
     page_param: "pageNumber"
     page_size_param: "pageSize"
     page_size: 200
@@ -89,3 +90,19 @@ run:
   save_sample_rows: true
   # 保存原始 rows 的路径
   sample_rows_path: "sample_rows.json"
+
+processing:
+  # 是否启用下载后处理（替换委托客户并按省份拆分）
+  enabled: true
+  # 委托客户字段名
+  consigner_field: "委托客户"
+  # 从环境变量读取委托客户值（例如在 .env 中设置 CONSIGNOR_NAME）
+  consigner_env_key: "CONSIGNOR_NAME"
+  # 省份字段名
+  province_field: "省份"
+  # 拆分后输出目录
+  output_dir: "data/province"
+  # 拆分后 Excel 的 sheet 名
+  sheet_name: "data"
+  # 拆分文件名模板，{province} 会替换为省份名
+  output_template: "{province}.xlsx"

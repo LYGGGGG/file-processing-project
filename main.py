@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -11,6 +12,9 @@ from fetcher import (
     fetch_all_real_train_info,
     filter_codes_for_day,
 )
+
+
+from processor import split_excel_by_province
 
 # 主入口日志
 logger = logging.getLogger(__name__)
@@ -91,6 +95,23 @@ def main() -> None:
         timeout=export_cfg.get("timeout", 60),
     )
     logger.info("saved excel => %s", saved)
+
+    
+    # 6) 对下载的 Excel 进一步处理：替换“委托客户”并按省份拆分
+    processing_cfg = config.get("processing", {})
+    if processing_cfg.get("enabled", True):
+        consigner_env_key = processing_cfg.get("consigner_env_key", "")
+        consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
+        outputs = split_excel_by_province(
+            input_path=saved,
+            output_dir=processing_cfg.get("output_dir", "data/province"),
+            province_field=processing_cfg.get("province_field", "省份"),
+            consigner_field=processing_cfg.get("consigner_field", "委托客户"),
+            consigner_value=consigner_value,
+            sheet_name=processing_cfg.get("sheet_name", "data"),
+            output_template=processing_cfg.get("output_template", "{province}.xlsx"),
+        )
+        logger.info("province split outputs=%s", list(outputs.values()))
 
 
 if __name__ == "__main__":
