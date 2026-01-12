@@ -1,25 +1,20 @@
-# fetcher.py
+import logging
+import math
 import os
 import time
-import math
-import json
-import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from dotenv import load_dotenv
-from pathlib import Path
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-load_dotenv()  # 读取 .env
 
 
 # -------------------------
 # helpers: env inject
 # -------------------------
+
 def _inject_env(value: Any) -> Any:
     """把形如 ${AUTH_TOKEN} 的字符串替换成环境变量值；其他类型原样返回。"""
     if not isinstance(value, str):
@@ -42,6 +37,7 @@ def _deep_inject_env(obj: Any) -> Any:
 # -------------------------
 # core: fetch listRealTrainInfo
 # -------------------------
+
 def fetch_all_real_train_info(
     url: str,
     headers: Dict[str, str],
@@ -113,6 +109,7 @@ def fetch_all_real_train_info(
 # -------------------------
 # filter: pick codes for a day
 # -------------------------
+
 def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
@@ -141,6 +138,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
 # -------------------------
 # download: exportLoadedBox.do (xlsx binary)
 # -------------------------
+
 def download_export_loaded_box_xlsx(
     *,
     url: str,
@@ -185,71 +183,3 @@ def download_export_loaded_box_xlsx(
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("Export download failed but no exception captured")
-
-
-# -------------------------
-# main
-# -------------------------
-def main() -> None:
-    LIST_URL = "https://bgwlgl.bbwport.com/api/train-sea-union/real/train/listRealTrainInfo.do"
-    EXPORT_URL = "https://bgwlgl.bbwport.com/api/train-sea-union/bookingInfo/exportLoadedBox.do"
-
-    HEADERS = {
-        "accept": "application/json, text/plain, */*",
-        "content-type": "application/json;charset=UTF-8",
-        "origin": "https://bgwlgl.bbwport.com",
-        "referer": "https://bgwlgl.bbwport.com/",
-        "auth_token": "${AUTH_TOKEN}",
-        "cookie": "${COOKIE}",
-        "user-agent": "Mozilla/5.0",
-    }
-
-    PAYLOAD = {
-        "pageNumber": 0,
-        "pageSize": 200,
-        "params": {
-            "realTrainCode": "",
-            "startStation": "",
-            "endStation": "",
-            "lineCode": "",
-            "lineName": "",
-            "loadingTimeStart": "",
-            "loadingTimeEnd": "",
-            # 你也可以不依赖接口时间过滤（接口会混入未来数据），反正我们本地再过滤
-            "departureDateStart": "2026-01-12 08:25:37",
-            "departureDateEnd": None,
-            "endProvince": "",
-            "upOrDown": "",
-        },
-        "sorts": [],
-    }
-
-    # 1) 拉列表
-    rows = fetch_all_real_train_info(LIST_URL, HEADERS, PAYLOAD)
-    logger.info("listRealTrainInfo rows=%s", len(rows))
-
-    # 保存一份原始列表便于你核对
-    with open("sample_rows.json", "w", encoding="utf-8") as f:
-        json.dump(rows, f, ensure_ascii=False, indent=2)
-    logger.info("saved sample_rows.json")
-
-    # 2) 本地筛“当天” code（先写死，后续你改成自动）
-    today = "2026-01-12"
-    codes = filter_codes_for_day(rows, today)
-    logger.info("filtered codes for %s => %s", today, len(codes))
-    logger.info("codes=%s", ",".join(codes))
-
-    # 3) 下载导出 Excel
-    out_file = f"data/export_loaded_box_{today}.xlsx"
-    saved = download_export_loaded_box_xlsx(
-        url=EXPORT_URL,
-        headers=HEADERS,
-        real_train_codes=codes,
-        out_path=out_file,
-        flag="单表",
-    )
-    logger.info("saved excel => %s", saved)
-
-
-if __name__ == "__main__":
-    main()

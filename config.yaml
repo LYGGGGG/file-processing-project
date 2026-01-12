@@ -1,9 +1,10 @@
-api:
+list_api:
   url: "https://bgwlgl.bbwport.com/api/train-sea-union/real/train/listRealTrainInfo.do"
   method: "POST"
   timeout: 30
   retries: 3
   retry_backoff_base: 1.5
+  sleep_between_pages: 0.2
 
   headers:
     accept: "application/json, text/plain, */*"
@@ -48,3 +49,26 @@ api:
     rows_field: "rows"
     total_field: "total"
     total_pages_field: "totalPage"
+
+export_api:
+  url: "https://bgwlgl.bbwport.com/api/train-sea-union/bookingInfo/exportLoadedBox.do"
+  method: "POST"
+  timeout: 60
+  retries: 3
+  flag: "单表"
+
+  headers:
+    accept: "application/json, text/plain, */*"
+    content-type: "application/json;charset=UTF-8"
+    origin: "https://bgwlgl.bbwport.com"
+    referer: "https://bgwlgl.bbwport.com/"
+    user-agent: "Mozilla/5.0"
+    auth_token: "${AUTH_TOKEN}"
+    cookie: "${COOKIE}"
+
+run:
+  target_day: "2026-01-12"
+  output_dir: "data"
+  output_filename_template: "export_loaded_box_{day}.xlsx"
+  save_sample_rows: true
+  sample_rows_path: "sample_rows.json"
