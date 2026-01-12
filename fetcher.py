@@ -12,13 +12,9 @@ logger = logging.getLogger(__name__)
 # 统一日志格式，便于排查请求与分页等流程
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-
-# -------------------------
-# helpers: env inject
-# -------------------------
-
+# env inject
 def _inject_env(value: Any) -> Any:
-    """把形如 ${AUTH_TOKEN} 的字符串替换成环境变量值；其他类型原样返回。
+    """把 ${AUTH_TOKEN} 的字符串替换成环境变量值；其他类型原样返回。
 
     参数:
         value: 任意配置值，可能是字符串，也可能是其他类型。
@@ -51,10 +47,7 @@ def _deep_inject_env(obj: Any) -> Any:
     return _inject_env(obj)
 
 
-# -------------------------
-# core: fetch listRealTrainInfo
-# -------------------------
-
+# fetch listRealTrainInfo
 def fetch_all_real_train_info(
     url: str,
     headers: Dict[str, str],
@@ -149,10 +142,7 @@ def fetch_all_real_train_info(
     return all_rows
 
 
-# -------------------------
-# filter: pick codes for a day
-# -------------------------
-
+# pick codes for a day
 def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
@@ -186,10 +176,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     return dedup
 
 
-# -------------------------
 # download: exportLoadedBox.do (xlsx binary)
-# -------------------------
-
 def download_export_loaded_box_xlsx(
     *,
     url: str,
