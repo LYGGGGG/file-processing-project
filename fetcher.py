@@ -189,6 +189,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
 
 # download: exportLoadedBox.do (xlsx binary)
 # -------------------------
+
 def download_export_loaded_box_xlsx(
     *,
     url: str,
