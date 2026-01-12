@@ -1,4 +1,5 @@
-"""处理下载的 Excel：替换“委托客户”并按“省份”拆分成子表。"""
+"""处理下载的 Excel：按“委托客户”过滤并按“省份”拆分成子表。"""
+
 
 from __future__ import annotations
 
@@ -37,14 +38,14 @@ def split_excel_by_province(
     sheet_name: str = "data",
     output_template: str = "{province}.xlsx",
 ) -> Dict[str, Path]:
-    """读取 Excel，替换“委托客户”，并按“省份”拆分为多个文件。
+    """读取 Excel，按“委托客户”过滤，并按“省份”拆分为多个文件。
 
     参数:
         input_path: 下载后的 Excel 路径。
         output_dir: 拆分后的文件输出目录。
         province_field: 省份字段名。
         consigner_field: 委托客户字段名。
-        consigner_value: 新的委托客户名称（来自环境变量）；为空则不替换。
+        consigner_value: 委托客户过滤值（来自环境变量）；为空则不做过滤。
         sheet_name: 输出 Excel 的 sheet 名。
         output_template: 输出文件名模板，支持 {province} 占位符。
 
@@ -60,7 +61,7 @@ def split_excel_by_province(
     if consigner_value:
         if consigner_field not in df.columns:
             raise KeyError(f"Missing column: {consigner_field}")
-        df[consigner_field] = consigner_value
+        df = df[df[consigner_field] == consigner_value]
 
     if province_field not in df.columns:
         raise KeyError(f"Missing column: {province_field}")

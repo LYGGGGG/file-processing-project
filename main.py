@@ -95,12 +95,12 @@ def main() -> None:
     )
     logger.info("saved excel => %s", saved)
 
-    # 6) 对下载的 Excel 进一步处理：替换“委托客户”并按省份拆分
+    # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按省份拆分
+
     processing_cfg = config.get("processing", {})
     if processing_cfg.get("enabled", True):
         consigner_env_key = processing_cfg.get("consigner_env_key", "")
         consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
-
         outputs = split_excel_by_province(
             input_path=saved,
             output_dir=processing_cfg.get("output_dir", "data/province"),

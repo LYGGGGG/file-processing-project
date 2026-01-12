@@ -18,15 +18,15 @@ list_api:
     referer: "https://bgwlgl.bbwport.com/"
     user-agent: "Mozilla/5.0"
 
-    # 1) 登录鉴权（建议从 .env 注入）
+    # ✅ 1) 登录鉴权（建议从 .env 注入）
     # 说明：保持 ${ENV} 形式，运行时从环境变量读取
     auth_token: "${AUTH_TOKEN}"
 
-    # 2) cookie（建议从 .env 注入，整串复制即可）
+    # ✅ 2) cookie（建议从 .env 注入，整串复制即可）
     # 说明：不要硬编码在代码里，避免泄露
     cookie: "${COOKIE}"
 
-  # 用 Network -> Payload 里看到的“完整 JSON”当模板
+  # ✅ 用 Network -> Payload 里看到的“完整 JSON”当模板
 
   # 说明：这里的参数可直接调整，无需改代码
   payload_template:
@@ -46,7 +46,7 @@ list_api:
     sorts: []
 
   pagination:
-    # 请求是 pageNumber/pageSize，且 pageNumber=0，说明 0-based
+    # ✅ 你看到的请求是 pageNumber/pageSize，且 pageNumber=0，说明 0-based
     # 说明：如果接口换了字段名，可以直接改这里
     page_param: "pageNumber"
     page_size_param: "pageSize"
