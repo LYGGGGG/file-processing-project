@@ -12,6 +12,7 @@ from fetcher import (
     fetch_all_real_train_info,
     filter_codes_for_day,
 )
+
 from processor import split_excel_by_province
 
 # 主入口日志
@@ -101,6 +102,7 @@ def main() -> None:
         if not consigner_value:
             consigner_env_key = processing_cfg.get("consigner_env_key", "")
             consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
+
         outputs = split_excel_by_province(
             input_path=saved,
             output_dir=processing_cfg.get("output_dir", "data/province"),
