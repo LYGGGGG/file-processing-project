@@ -1,27 +1,32 @@
-# fetcher.py
+import logging
+import math
 import os
 import time
-import math
-import json
-import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-from dotenv import load_dotenv
-from pathlib import Path
-from datetime import datetime
 
+# 模块级 logger：供本模块内部统一输出日志
 logger = logging.getLogger(__name__)
+# 统一日志格式，便于排查请求与分页等流程
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-load_dotenv()  # 读取 .env
 
 
 # -------------------------
 # helpers: env inject
 # -------------------------
+
 def _inject_env(value: Any) -> Any:
-    """把形如 ${AUTH_TOKEN} 的字符串替换成环境变量值；其他类型原样返回。"""
+    """把形如 ${AUTH_TOKEN} 的字符串替换成环境变量值；其他类型原样返回。
+
+    参数:
+        value: 任意配置值，可能是字符串，也可能是其他类型。
+
+    返回:
+        - 若 value 是 "${SOME_ENV}" 形式，则替换为环境变量值（取不到则返回空字符串）。
+        - 其他类型原样返回。
+    """
     if not isinstance(value, str):
         return value
     if value.startswith("${") and value.endswith("}"):
@@ -31,7 +36,14 @@ def _inject_env(value: Any) -> Any:
 
 
 def _deep_inject_env(obj: Any) -> Any:
-    """递归替换 dict/list 中的 ${VAR} 占位符。"""
+    """递归替换 dict/list 中的 ${VAR} 占位符。
+
+    参数:
+        obj: 允许是 dict / list / 基础类型。
+
+    返回:
+        对 dict / list 进行递归遍历后替换环境变量占位符。
+    """
     if isinstance(obj, dict):
         return {k: _deep_inject_env(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -42,6 +54,7 @@ def _deep_inject_env(obj: Any) -> Any:
 # -------------------------
 # core: fetch listRealTrainInfo
 # -------------------------
+
 def fetch_all_real_train_info(
     url: str,
     headers: Dict[str, str],
@@ -60,12 +73,31 @@ def fetch_all_real_train_info(
     拉取 listRealTrainInfo.do 全量数据：
     - 分页字段：pageNumber/pageSize
     - 返回字段：total/rows
+
+    参数:
+        url: 列表接口 URL。
+        headers: 请求头（可包含 ${ENV} 形式占位符）。
+        payload_template: 请求 payload 模板（可包含 ${ENV} 形式占位符）。
+        page_number_field: 分页页码字段名，默认 pageNumber。
+        page_size_field: 分页大小字段名，默认 pageSize。
+        rows_field: 返回数据中列表字段名，默认 rows。
+        total_field: 返回数据中总数字段名，默认 total。
+        start_page_number: 起始页码（接口若从 0 开始则填 0）。
+        retries: 单次请求失败重试次数。
+        timeout: 单次请求超时时间（秒）。
+        sleep_between_pages: 每页请求之间休眠时间（秒），用于降低频率。
+
+    返回:
+        拼接所有分页后的 records 列表。
     """
+    # 使用 Session 以复用连接，减少重复握手
     session = requests.Session()
+    # 将 headers / payload 中的 ${ENV} 占位符替换为环境变量
     headers = _deep_inject_env(headers)
     base_payload = _deep_inject_env(payload_template)
 
     def _post_with_retry(data: Dict[str, Any]) -> Dict[str, Any]:
+        """内部函数：负责带重试的 POST 请求。"""
         last_exc: Optional[Exception] = None
         for attempt in range(1, retries + 1):
             try:
@@ -75,24 +107,30 @@ def fetch_all_real_train_info(
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 logger.warning("Request failed (attempt %s/%s): %s", attempt, retries, exc)
+                # 指数退避等待，降低短时间内连续失败的概率
                 time.sleep(2 ** attempt)
         raise last_exc  # type: ignore[misc]
 
     # 先请求第一页，拿 total
     first_payload = dict(base_payload)
+    # 起始页码写入 payload
     first_payload[page_number_field] = start_page_number
 
     first = _post_with_retry(first_payload)
+    # total 为接口返回总数量；如果拿不到则按 0 处理
     total = int(first.get(total_field, 0) or 0)
+    # page_size 取自 payload 模板
     page_size = int(base_payload.get(page_size_field, 200))
     rows = first.get(rows_field, []) or []
     all_rows: List[Dict[str, Any]] = list(rows)
 
     logger.info("total=%s, page_size=%s, first_page_rows=%s", total, page_size, len(rows))
 
+    # 如果第一页已返回全部数据，直接返回
     if total <= len(all_rows):
         return all_rows
 
+    # 计算总页数：total / page_size 向上取整
     total_pages = int(math.ceil(total / page_size))
     # total_pages 是“逻辑页数”，请求页码从 0 开始，所以循环 1..total_pages-1
     for i in range(1, total_pages):
@@ -105,6 +143,7 @@ def fetch_all_real_train_info(
         all_rows.extend(rows)
 
         logger.info("page %s/%s -> fetched=%s, accumulated=%s", i + 1, total_pages, len(rows), len(all_rows))
+        # 控制请求频率，避免被接口限流
         time.sleep(sleep_between_pages)
 
     return all_rows
@@ -113,14 +152,23 @@ def fetch_all_real_train_info(
 # -------------------------
 # filter: pick codes for a day
 # -------------------------
+
 def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
     规则：departure_date 的日期部分 == day
+
+    参数:
+        rows: 列表接口返回的记录列表。
+        day: 目标日期，格式为 YYYY-MM-DD。
+
+    返回:
+        去重后的 real_train_code 列表（保持原顺序）。
     """
     codes: List[str] = []
 
     for r in rows:
+        # departure_date 字段可能包含时间，先取日期部分
         dep = (r.get("departure_date") or "").strip()
         if len(dep) >= 10 and dep[:10] == day:
             code = (r.get("real_train_code") or "").strip()
@@ -141,6 +189,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
 # -------------------------
 # download: exportLoadedBox.do (xlsx binary)
 # -------------------------
+
 def download_export_loaded_box_xlsx(
     *,
     url: str,
@@ -154,13 +203,28 @@ def download_export_loaded_box_xlsx(
     """
     调用 exportLoadedBox.do 下载 Excel（二进制）并保存。
     payload: {"realTrainCode": "A,B,C", "flag":"单表"}
+
+    参数:
+        url: 导出接口 URL。
+        headers: 请求头（可包含 ${ENV} 形式占位符）。
+        real_train_codes: 需要导出的 real_train_code 列表。
+        out_path: 本地保存路径（含文件名）。
+        flag: 接口需要的导出标识（默认“单表”）。
+        retries: 下载失败时的重试次数。
+        timeout: 单次下载超时时间（秒）。
+
+    返回:
+        保存后的文件路径字符串。
     """
     if not real_train_codes:
         raise ValueError("real_train_codes is empty")
 
+    # Session 复用连接
     session = requests.Session()
+    # 注入环境变量（避免把 token 写死在代码里）
     headers = _deep_inject_env(headers)
 
+    # 逗号拼接 codes，符合接口参数要求
     payload = {"realTrainCode": ",".join(real_train_codes), "flag": flag}
 
     last_exc: Optional[Exception] = None
@@ -180,76 +244,9 @@ def download_export_loaded_box_xlsx(
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             logger.warning("Export download failed (attempt %s/%s): %s", attempt, retries, exc)
+            # 下载失败时指数退避等待
             time.sleep(2 ** attempt)
 
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("Export download failed but no exception captured")
-
-
-# -------------------------
-# main
-# -------------------------
-def main() -> None:
-    LIST_URL = "https://bgwlgl.bbwport.com/api/train-sea-union/real/train/listRealTrainInfo.do"
-    EXPORT_URL = "https://bgwlgl.bbwport.com/api/train-sea-union/bookingInfo/exportLoadedBox.do"
-
-    HEADERS = {
-        "accept": "application/json, text/plain, */*",
-        "content-type": "application/json;charset=UTF-8",
-        "origin": "https://bgwlgl.bbwport.com",
-        "referer": "https://bgwlgl.bbwport.com/",
-        "auth_token": "${AUTH_TOKEN}",
-        "cookie": "${COOKIE}",
-        "user-agent": "Mozilla/5.0",
-    }
-
-    PAYLOAD = {
-        "pageNumber": 0,
-        "pageSize": 200,
-        "params": {
-            "realTrainCode": "",
-            "startStation": "",
-            "endStation": "",
-            "lineCode": "",
-            "lineName": "",
-            "loadingTimeStart": "",
-            "loadingTimeEnd": "",
-            # 你也可以不依赖接口时间过滤（接口会混入未来数据），反正我们本地再过滤
-            "departureDateStart": "2026-01-12 08:25:37",
-            "departureDateEnd": None,
-            "endProvince": "",
-            "upOrDown": "",
-        },
-        "sorts": [],
-    }
-
-    # 1) 拉列表
-    rows = fetch_all_real_train_info(LIST_URL, HEADERS, PAYLOAD)
-    logger.info("listRealTrainInfo rows=%s", len(rows))
-
-    # 保存一份原始列表便于你核对
-    with open("sample_rows.json", "w", encoding="utf-8") as f:
-        json.dump(rows, f, ensure_ascii=False, indent=2)
-    logger.info("saved sample_rows.json")
-
-    # 2) 本地筛“当天” code（先写死，后续你改成自动）
-    today = "2026-01-12"
-    codes = filter_codes_for_day(rows, today)
-    logger.info("filtered codes for %s => %s", today, len(codes))
-    logger.info("codes=%s", ",".join(codes))
-
-    # 3) 下载导出 Excel
-    out_file = f"data/export_loaded_box_{today}.xlsx"
-    saved = download_export_loaded_box_xlsx(
-        url=EXPORT_URL,
-        headers=HEADERS,
-        real_train_codes=codes,
-        out_path=out_file,
-        flag="单表",
-    )
-    logger.info("saved excel => %s", saved)
-
-
-if __name__ == "__main__":
-    main()

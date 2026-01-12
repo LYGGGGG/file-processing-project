@@ -1,9 +1,15 @@
-api:
+list_api:
+  # 列表接口：用于获取所有可用车次信息（支持分页）
   url: "https://bgwlgl.bbwport.com/api/train-sea-union/real/train/listRealTrainInfo.do"
   method: "POST"
+  # 请求超时（秒）
   timeout: 30
+  # 请求失败重试次数
   retries: 3
+  # 预留：退避系数（当前逻辑中未使用，可后续扩展）
   retry_backoff_base: 1.5
+  # 翻页时每页之间等待（秒）
+  sleep_between_pages: 0.2
 
   headers:
     accept: "application/json, text/plain, */*"
@@ -13,12 +19,15 @@ api:
     user-agent: "Mozilla/5.0"
 
     # ✅ 1) 登录鉴权（建议从 .env 注入）
+    # 说明：保持 ${ENV} 形式，运行时从环境变量读取
     auth_token: "${AUTH_TOKEN}"
 
     # ✅ 2) cookie（建议从 .env 注入，整串复制即可）
+    # 说明：不要硬编码在代码里，避免泄露
     cookie: "${COOKIE}"
 
   # ✅ 用 Network -> Payload 里看到的“完整 JSON”当模板
+  # 说明：这里的参数可直接调整，无需改代码
   payload_template:
     pageNumber: 0
     pageSize: 200
@@ -37,6 +46,7 @@ api:
 
   pagination:
     # ✅ 你看到的请求是 pageNumber/pageSize，且 pageNumber=0，说明 0-based
+    # 说明：如果接口换了字段名，可以直接改这里
     page_param: "pageNumber"
     page_size_param: "pageSize"
     page_size: 200
@@ -48,3 +58,51 @@ api:
     rows_field: "rows"
     total_field: "total"
     total_pages_field: "totalPage"
+
+export_api:
+  # 导出接口：用于下载 Excel（二进制）
+  url: "https://bgwlgl.bbwport.com/api/train-sea-union/bookingInfo/exportLoadedBox.do"
+  method: "POST"
+  # 导出超时（秒）
+  timeout: 60
+  # 导出失败重试次数
+  retries: 3
+  # 导出标识（按接口要求）
+  flag: "单表"
+
+  headers:
+    accept: "application/json, text/plain, */*"
+    content-type: "application/json;charset=UTF-8"
+    origin: "https://bgwlgl.bbwport.com"
+    referer: "https://bgwlgl.bbwport.com/"
+    user-agent: "Mozilla/5.0"
+    auth_token: "${AUTH_TOKEN}"
+    cookie: "${COOKIE}"
+
+run:
+  # 运行参数：筛选哪一天的车次（YYYY-MM-DD）
+  target_day: "2026-01-12"
+  # 输出目录
+  output_dir: "data"
+  # 输出文件名模板，{day} 会替换为 target_day
+  output_filename_template: "export_loaded_box_{day}.xlsx"
+  # 是否保存原始 rows 便于核对
+  save_sample_rows: true
+  # 保存原始 rows 的路径
+  sample_rows_path: "sample_rows.json"
+
+processing:
+  # 是否启用下载后处理（替换委托客户并按省份拆分）
+  enabled: true
+  # 委托客户字段名
+  consigner_field: "委托客户"
+  # 从环境变量读取委托客户值（例如在 .env 中设置 CONSIGNOR_NAME）
+  consigner_env_key: "CONSIGNOR_NAME"
+  # 省份字段名
+  province_field: "省份"
+  # 拆分后输出目录
+  output_dir: "data/province"
+  # 拆分后 Excel 的 sheet 名
+  sheet_name: "data"
+  # 拆分文件名模板，{province} 会替换为省份名
+  output_template: "{province}.xlsx"
