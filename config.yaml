@@ -27,6 +27,7 @@ list_api:
     cookie: "${COOKIE}"
 
   # ✅ 用 Network -> Payload 里看到的“完整 JSON”当模板
+
   # 说明：这里的参数可直接调整，无需改代码
   payload_template:
     pageNumber: 0
@@ -37,7 +38,7 @@ list_api:
       endStation: ""
       lineCode: ""
       lineName: ""
-      upOrDown: ""
+      upOrDown: "上行"
       departureDateStart: "2026-01-12 09:00:44"
       departureDateEnd: null
       loadingTimeStart: null
@@ -54,7 +55,7 @@ list_api:
     one_based: false
     max_pages: 10000
 
-    # ✅ 关键：Response 里 rows/total/totalPage 的路径
+    # 关键：Response 里 rows/total/totalPage 的路径
     rows_field: "rows"
     total_field: "total"
     total_pages_field: "totalPage"
@@ -96,6 +97,7 @@ processing:
   enabled: true
   # 委托客户字段名
   consigner_field: "委托客户"
+
   # 从环境变量读取委托客户值（例如在 .env 中设置 CONSIGNOR_NAME）
   consigner_env_key: "CONSIGNOR_NAME"
   # 省份字段名

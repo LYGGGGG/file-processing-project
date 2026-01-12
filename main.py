@@ -12,6 +12,7 @@ from fetcher import (
     fetch_all_real_train_info,
     filter_codes_for_day,
 )
+
 from processor import split_excel_by_province
 
 # 主入口日志
@@ -95,6 +96,7 @@ def main() -> None:
     logger.info("saved excel => %s", saved)
 
     # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按省份拆分
+
     processing_cfg = config.get("processing", {})
     if processing_cfg.get("enabled", True):
         consigner_env_key = processing_cfg.get("consigner_env_key", "")
