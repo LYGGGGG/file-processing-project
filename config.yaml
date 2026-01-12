@@ -18,7 +18,6 @@ list_api:
     referer: "https://bgwlgl.bbwport.com/"
     user-agent: "Mozilla/5.0"
 
-
     # 1) 登录鉴权（建议从 .env 注入）
     # 说明：保持 ${ENV} 形式，运行时从环境变量读取
     auth_token: "${AUTH_TOKEN}"
@@ -48,7 +47,6 @@ list_api:
 
   pagination:
     # 请求是 pageNumber/pageSize，且 pageNumber=0，说明 0-based
-
     # 说明：如果接口换了字段名，可以直接改这里
     page_param: "pageNumber"
     page_size_param: "pageSize"
@@ -99,8 +97,6 @@ processing:
   enabled: true
   # 委托客户字段名
   consigner_field: "委托客户"
-  # 直接在配置里写委托客户值（优先级高于环境变量）
-  consigner_value: "A"
 
   # 从环境变量读取委托客户值（例如在 .env 中设置 CONSIGNOR_NAME）
   consigner_env_key: "CONSIGNOR_NAME"
