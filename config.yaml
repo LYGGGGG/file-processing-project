@@ -38,7 +38,7 @@ list_api:
       endStation: ""
       lineCode: ""
       lineName: ""
-      upOrDown: ""
+      upOrDown: "上行"
       departureDateStart: "2026-01-12 09:00:44"
       departureDateEnd: null
       loadingTimeStart: null
