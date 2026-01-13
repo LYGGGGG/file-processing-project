@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import time
 from io import BytesIO
 from typing import Any, Dict, Iterable, Optional, Tuple
 
@@ -63,35 +64,85 @@ def _recognize_captcha(image_bytes: bytes) -> str:
     return digits
 
 
-def _request_captcha(session: requests.Session, captcha_cfg: Dict[str, Any]) -> Tuple[bytes, Optional[str]]:
+def _strip_data_url(image_data: str) -> str:
+    if image_data.startswith("data:"):
+        return image_data.split(",", 1)[1] if "," in image_data else ""
+    return image_data
+
+
+def _request_captcha(
+    session: requests.Session,
+    captcha_cfg: Dict[str, Any],
+) -> Tuple[bytes, Optional[str], Optional[str]]:
     method = captcha_cfg.get("method", "GET").upper()
     url = captcha_cfg["url"]
     headers = _deep_inject_env(captcha_cfg.get("headers", {}))
     params = _deep_inject_env(captcha_cfg.get("params", {}))
     payload = _deep_inject_env(captcha_cfg.get("payload", {}))
+    retries = int(captcha_cfg.get("retries", 0))
+    retry_sleep = float(captcha_cfg.get("retry_sleep", 1))
 
-    if method == "POST":
-        resp = session.post(url, headers=headers, params=params, json=payload, timeout=captcha_cfg.get("timeout", 10))
-    else:
-        resp = session.get(url, headers=headers, params=params, timeout=captcha_cfg.get("timeout", 10))
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        if method == "POST":
+            resp = session.post(
+                url,
+                headers=headers,
+                params=params,
+                json=payload,
+                timeout=captcha_cfg.get("timeout", 10),
+            )
+        else:
+            resp = session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=captcha_cfg.get("timeout", 10),
+            )
 
-    resp.raise_for_status()
+        if resp.status_code == 409:
+            logger.warning(
+                "captcha request conflict (409) on attempt %s/%s: %s",
+                attempt + 1,
+                retries + 1,
+                resp.text,
+            )
+            if attempt < retries:
+                time.sleep(retry_sleep)
+                continue
+        try:
+            resp.raise_for_status()
+            last_exc = None
+            break
+        except requests.HTTPError as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(retry_sleep)
+                continue
+            raise
+
+    if last_exc:
+        raise last_exc
     response_type = captcha_cfg.get("response_type", "binary")
     captcha_key = None
+    captcha_rs_id = None
 
     if response_type == "base64_json":
         payload_json = resp.json()
         image_field = captcha_cfg.get("image_field", "data")
-        image_b64 = payload_json.get(image_field, "")
+        image_b64 = _strip_data_url(payload_json.get(image_field, ""))
         if not image_b64:
             raise ValueError("Captcha base64 data is empty")
         image_bytes = base64.b64decode(image_b64)
         key_field = captcha_cfg.get("key_field")
         if key_field:
             captcha_key = payload_json.get(key_field)
-        return image_bytes, captcha_key
+        rs_id_field = captcha_cfg.get("rs_id_field")
+        if rs_id_field:
+            captcha_rs_id = payload_json.get(rs_id_field)
+        return image_bytes, captcha_key, captcha_rs_id
 
-    return resp.content, None
+    return resp.content, None, None
 
 
 def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
@@ -102,8 +153,26 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
 
     session = requests.Session()
     captcha_cfg = login_cfg["captcha"]
-    image_bytes, captcha_key = _request_captcha(session, captcha_cfg)
-    captcha_value = _recognize_captcha(image_bytes)
+    captcha_value = ""
+    captcha_key = None
+    captcha_rs_id = None
+    if captcha_cfg.get("enabled", True):
+        image_bytes, captcha_key, captcha_rs_id = _request_captcha(session, captcha_cfg)
+        captcha_value = _recognize_captcha(image_bytes)
+    else:
+        value_env_key = captcha_cfg.get("value_env_key", "CAPTCHA_VALUE")
+        captcha_value = os.getenv(value_env_key, "")
+        key_env_key = captcha_cfg.get("key_env_key", "")
+        if key_env_key:
+            captcha_key = os.getenv(key_env_key, None)
+        rs_id_env_key = captcha_cfg.get("rs_id_env_key", "")
+        if rs_id_env_key:
+            captcha_rs_id = os.getenv(rs_id_env_key, None)
+        if not captcha_value:
+            raise ValueError(
+                f"Captcha is disabled but {value_env_key} is empty; "
+                "please set the captcha value or enable captcha request."
+            )
 
     if not captcha_value:
         raise ValueError("Captcha recognition failed; got empty result")
@@ -114,6 +183,11 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     login_method = login_request.get("method", "POST").upper()
     login_url = login_request["url"]
     login_headers = _deep_inject_env(login_request.get("headers", {}))
+    login_params = _deep_inject_env(login_request.get("params_template", {}))
+    if captcha_rs_id:
+        login_params.setdefault(login_request.get("rs_id_param", "_rs_id"), captcha_rs_id)
+    if captcha_value:
+        login_params.setdefault(login_request.get("random_code_param", "_randomCode_"), captcha_value)
     payload_template = _deep_inject_env(login_request.get("payload_template", {}))
 
     captcha_field = login_request.get("captcha_field", "captcha")
@@ -125,14 +199,16 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         resp = session.post(
             login_url,
             headers=login_headers,
+            params=login_params,
             json=payload_template,
             timeout=login_request.get("timeout", 15),
         )
     else:
+        merged_params = {**login_params, **payload_template}
         resp = session.get(
             login_url,
             headers=login_headers,
-            params=payload_template,
+            params=merged_params,
             timeout=login_request.get("timeout", 15),
         )
     resp.raise_for_status()
