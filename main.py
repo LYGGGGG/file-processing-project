@@ -14,6 +14,7 @@ from fetcher import (
 )
 
 from processor import split_excel_by_province
+from utils import build_cookie_header
 
 # 主入口日志
 logger = logging.getLogger(__name__)
@@ -180,8 +181,13 @@ def main() -> None:
     config = CONFIG
     login_cfg = config.get("login_api", {})
     if login_cfg.get("enabled", False):
-        auth_result = login_and_refresh_auth(config)
-        cookie_header = auth_result.cookie_header
+        cookies = login.login()
+        if not cookies:
+            raise RuntimeError("登录失败，未获取到 Cookie 信息。")
+        cookie_header = build_cookie_header(
+            cookie_pairs=cookies,
+            preferred_keys=("AUTH_TOKEN", "BGWL-EXEC-PROD", "HWWAFSESID", "HWWAFSESTIME"),
+        )
         os.environ[login_cfg.get("cookie_env", "COOKIE")] = cookie_header
 
     _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
