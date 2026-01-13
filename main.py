@@ -34,7 +34,6 @@ CONFIG: Dict[str, Any] = {
             "origin": "https://bgwlgl.bbwport.com",
             "referer": "https://bgwlgl.bbwport.com/",
             "user-agent": "Mozilla/5.0",
-            "auth_token": "${AUTH_TOKEN}",
             "cookie": "${COOKIE}",
         },
         "payload_template": {
@@ -78,7 +77,6 @@ CONFIG: Dict[str, Any] = {
             "origin": "https://bgwlgl.bbwport.com",
             "referer": "https://bgwlgl.bbwport.com/",
             "user-agent": "Mozilla/5.0",
-            "auth_token": "${AUTH_TOKEN}",
             "cookie": "${COOKIE}",
         },
     },
