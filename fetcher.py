@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from utils import deep_inject_env
+
 
 # 模块级 logger：供本模块内部统一输出日志
 logger = logging.getLogger(__name__)
@@ -55,8 +57,8 @@ def fetch_all_real_train_info(
     # 使用 Session 以复用连接，减少重复握手
     session = requests.Session()
     # 将 headers / payload 中的 ${ENV} 占位符替换为环境变量
-    headers = _deep_inject_env(headers)
-    base_payload = _deep_inject_env(payload_template)
+    headers = deep_inject_env(headers)
+    base_payload = deep_inject_env(payload_template)
 
     def _post_with_retry(data: Dict[str, Any]) -> Dict[str, Any]:
         """内部函数：负责带重试的 POST 请求。"""
@@ -190,7 +192,7 @@ def download_export_loaded_box_xlsx(
     # Session 复用连接
     session = requests.Session()
     # 注入环境变量（避免把 token 写死在代码里）
-    headers = _deep_inject_env(headers)
+    headers = deep_inject_env(headers)
 
     # 逗号拼接 codes，符合接口参数要求
     payload = {"realTrainCode": ",".join(real_train_codes), "flag": flag}
