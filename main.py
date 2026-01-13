@@ -38,12 +38,7 @@ CONFIG: Dict[str, Any] = {
             "cookie": "${COOKIE}",
         },
         "auth_link_flow": {
-            "enabled": True,
-            "transfer_url": "https://bgwlgl.bbwport.com/api/auth/transfer",
-            "portal_url": "https://bgwlgl.bbwport.com:6443/",
-            "me_url": "https://bgwlgl.bbwport.com:6443/me.json",
-            "verify_ssl": False,
-            "auth_token_env": "AUTH_TOKEN",
+            "enabled": False,
         },
         "payload_template": {
             "pageNumber": 0,
