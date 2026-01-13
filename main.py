@@ -26,7 +26,7 @@ CONFIG: Dict[str, Any] = {
         "url": "https://bgwlgl.bbwport.com/api/train-sea-union/real/train/listRealTrainInfo.do",
         "method": "POST",
         "timeout": 30,
-        "retries": 10,
+        "retries": 5,
         "retry_backoff_base": 1.5,
         "sleep_between_pages": 0.2,
         "headers": {
@@ -114,7 +114,7 @@ CONFIG: Dict[str, Any] = {
                 "user-agent": "Mozilla/5.0",
             },
             "params": {"show": "${CAPTCHA_SHOW}"},
-            "save_path": "data/captcha.png",
+            "save_path": "data/captcha/latest.png",
             "retries": 3,
             "retry_sleep": 1,
             "response_type": "base64_json",
