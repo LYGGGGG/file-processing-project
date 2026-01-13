@@ -1,4 +1,4 @@
-"""登录与鉴权辅助逻辑。"""
+"""登录辅助：仅用于获取 cookie/token。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,8 @@ import hashlib
 import logging
 import os
 import re
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional
+from typing import Any, Dict, Mapping, MutableMapping, Optional
 
 import ddddocr
 import requests
@@ -17,28 +16,12 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class CaptchaResult:
-    value: str
-    key: Optional[str]
-    rs_id: Optional[str]
-    image_bytes: Optional[bytes]
-
-
-def _is_env_placeholder(value: str) -> bool:
-    return value.startswith("${") and value.endswith("}")
-
-
-def _resolve_env_placeholder(value: str) -> str:
-    if _is_env_placeholder(value):
-        env_key = value[2:-1]
-        return os.getenv(env_key, value)
-    return value
-
-
 def _deep_inject_env(value: Any) -> Any:
     if isinstance(value, str):
-        return _resolve_env_placeholder(value)
+        if value.startswith("${") and value.endswith("}"):
+            env_key = value[2:-1]
+            return os.getenv(env_key, value)
+        return value
     if isinstance(value, list):
         return [_deep_inject_env(item) for item in value]
     if isinstance(value, tuple):
@@ -52,55 +35,13 @@ def _md5_hex(value: str) -> str:
     return hashlib.md5(value.encode("utf-8")).hexdigest()
 
 
-def _extract_json_path(data: Mapping[str, Any], path: Iterable[str]) -> Optional[Any]:
-    current: Any = data
-    for key in path:
-        if not isinstance(current, Mapping) or key not in current:
-            return None
-        current = current[key]
-    return current
-
-
-def _request_with_retry(
-    session: requests.Session,
-    *,
-    method: str,
-    url: str,
-    retries: int,
-    timeout: int,
-    headers: Optional[Mapping[str, str]] = None,
-    params: Optional[Mapping[str, Any]] = None,
-    json_payload: Optional[Mapping[str, Any]] = None,
-) -> requests.Response:
-    last_exc: Optional[Exception] = None
-    for attempt in range(1, retries + 1):
-        try:
-            response = session.request(
-                method,
-                url,
-                headers=headers,
-                params=params,
-                json=json_payload,
-                timeout=timeout,
-            )
-            response.raise_for_status()
-            return response
-        except Exception as exc:  # noqa: BLE001
-            last_exc = exc
-            logger.warning("请求失败（第 %s/%s 次）：%s", attempt, retries, exc)
-    raise last_exc  # type: ignore[misc]
-
-
 def _decode_base64_image(raw: str) -> bytes:
     match = re.match(r"data:image/(\w+);base64,(.*)", raw)
     data = match.group(2) if match else raw
     return base64.b64decode(data)
 
 
-def _fetch_captcha(
-    session: requests.Session,
-    config: Mapping[str, Any],
-) -> Optional[CaptchaResult]:
+def _fetch_captcha(session: requests.Session, config: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     if not config.get("enabled", False):
         return None
 
@@ -109,11 +50,12 @@ def _fetch_captcha(
     rs_id_env_key = config.get("rs_id_env_key")
 
     env_value = os.getenv(value_env_key) if value_env_key else None
-    env_key = os.getenv(key_env_key) if key_env_key else None
-    env_rs_id = os.getenv(rs_id_env_key) if rs_id_env_key else None
-
     if env_value:
-        return CaptchaResult(value=env_value, key=env_key, rs_id=env_rs_id, image_bytes=None)
+        return {
+            "value": env_value,
+            "key": os.getenv(key_env_key) if key_env_key else "",
+            "rs_id": os.getenv(rs_id_env_key) if rs_id_env_key else "",
+        }
 
     url = config.get("url")
     if not url:
@@ -121,24 +63,13 @@ def _fetch_captcha(
 
     headers = _deep_inject_env(config.get("headers", {}))
     params = _deep_inject_env(config.get("params", {}))
-    retries = int(config.get("retries", 1))
     timeout = int(config.get("timeout", 10))
 
-    response = _request_with_retry(
-        session,
-        method=config.get("method", "GET"),
-        url=url,
-        retries=retries,
-        timeout=timeout,
-        headers=headers,
-        params=params,
-    )
+    response = session.request(config.get("method", "GET"), url, headers=headers, params=params, timeout=timeout)
+    response.raise_for_status()
     payload = response.json()
 
     image_field = config.get("image_field", "randomCodeImage")
-    key_field = config.get("key_field", "captchaKey")
-    rs_id_field = config.get("rs_id_field", "_rs_id")
-
     raw_image = payload.get(image_field, "")
     if not raw_image:
         raise ValueError("验证码响应缺少图片字段")
@@ -154,12 +85,11 @@ def _fetch_captcha(
     ocr = ddddocr.DdddOcr()
     value = ocr.classification(image_bytes)
 
-    return CaptchaResult(
-        value=value,
-        key=payload.get(key_field),
-        rs_id=payload.get(rs_id_field),
-        image_bytes=image_bytes,
-    )
+    return {
+        "value": value,
+        "key": payload.get(config.get("key_field", "captchaKey"), ""),
+        "rs_id": payload.get(config.get("rs_id_field", "_rs_id"), ""),
+    }
 
 
 def _build_cookie_string(cookiejar: requests.cookies.RequestsCookieJar) -> str:
@@ -169,7 +99,7 @@ def _build_cookie_string(cookiejar: requests.cookies.RequestsCookieJar) -> str:
 
 def _apply_auth_to_headers(headers: MutableMapping[str, str], token: str, cookie: str) -> None:
     for key, value in list(headers.items()):
-        if isinstance(value, str) and _is_env_placeholder(value):
+        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
             env_key = value[2:-1]
             if env_key == "AUTH_TOKEN":
                 headers[key] = token
@@ -197,39 +127,38 @@ def login_and_refresh_auth(config: MutableMapping[str, Any]) -> Optional[Dict[st
     payload = _deep_inject_env(login_conf.get("payload_template", {}))
 
     if captcha_result:
-        captcha_field = login_conf.get("captcha_field", "captcha")
-        payload[captcha_field] = captcha_result.value
+        payload[login_conf.get("captcha_field", "captcha")] = captcha_result["value"]
         captcha_key_field = login_conf.get("captcha_key_field")
-        if captcha_key_field and captcha_result.key:
-            payload[captcha_key_field] = captcha_result.key
+        if captcha_key_field and captcha_result.get("key"):
+            payload[captcha_key_field] = captcha_result["key"]
 
-        if captcha_result.rs_id:
-            rs_id_param = login_conf.get("rs_id_param", "_rs_id")
-            params[rs_id_param] = captcha_result.rs_id
-        random_code_param = login_conf.get("random_code_param", "_randomCode_")
-        params[random_code_param] = captcha_result.value
+        rs_id = captcha_result.get("rs_id")
+        if rs_id:
+            params[login_conf.get("rs_id_param", "_rs_id")] = rs_id
+        params[login_conf.get("random_code_param", "_randomCode_")] = captcha_result["value"]
 
-    password_hash = login_conf.get("password_hash")
-    if password_hash == "md5" and "password" in payload:
+    if login_conf.get("password_hash") == "md5" and "password" in payload:
         payload["password"] = _md5_hex(str(payload["password"]))
 
-    retries = int(login_conf.get("retries", 1))
     timeout = int(login_conf.get("timeout", 15))
-
-    response = _request_with_retry(
-        session,
-        method=login_conf.get("method", "POST"),
-        url=url,
-        retries=retries,
-        timeout=timeout,
+    response = session.request(
+        login_conf.get("method", "POST"),
+        url,
         headers=headers,
         params=params,
-        json_payload=payload,
+        json=payload,
+        timeout=timeout,
     )
+    response.raise_for_status()
 
     response_data = response.json()
     token_path = login_cfg.get("token_json_path", ["data", "token"])
-    token = _extract_json_path(response_data, token_path)
+    token: Optional[Any] = response_data
+    for key in token_path:
+        if not isinstance(token, Mapping) or key not in token:
+            token = None
+            break
+        token = token[key]
     if token is None:
         raise ValueError("登录响应未返回 token")
 
@@ -248,5 +177,5 @@ def login_and_refresh_auth(config: MutableMapping[str, Any]) -> Optional[Dict[st
         if isinstance(headers_section, MutableMapping):
             _apply_auth_to_headers(headers_section, str(token), cookie_string)
 
-    logger.info("登录成功，AUTH_TOKEN 与 COOKIE 已刷新")
+    logger.info("登录成功，已刷新 AUTH_TOKEN 与 COOKIE")
     return {"auth_token": str(token), "cookie": cookie_string}
