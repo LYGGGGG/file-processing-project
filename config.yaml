@@ -108,3 +108,44 @@ processing:
   sheet_name: "data"
   # 拆分文件名模板，{province} 会替换为省份名
   output_template: "{province}.xlsx"
+
+login_api:
+  # 是否启用自动登录刷新 cookie/token
+  enabled: false
+
+  # 验证码接口配置
+  captcha:
+    url: "https://bgwlgl.bbwport.com/api/auth/captcha"
+    method: "GET"
+    timeout: 10
+    headers:
+      accept: "application/json, text/plain, */*"
+      user-agent: "Mozilla/5.0"
+    # response_type: "binary" | "base64_json"
+    response_type: "binary"
+    # base64_json 模式时需要指定字段
+    image_field: "data"
+    # 如果返回里有 captcha key，可在这里声明
+    key_field: "captchaKey"
+
+  # 登录接口配置
+  login:
+    url: "https://bgwlgl.bbwport.com/api/auth/login"
+    method: "POST"
+    timeout: 15
+    headers:
+      accept: "application/json, text/plain, */*"
+      content-type: "application/json;charset=UTF-8"
+      user-agent: "Mozilla/5.0"
+    payload_template:
+      username: "${LOGIN_USERNAME}"
+      password: "${LOGIN_PASSWORD}"
+    # 识别出的验证码写入此字段
+    captcha_field: "captcha"
+    # 如果登录接口需要 captchaKey，将其写入此字段
+    captcha_key_field: "captchaKey"
+
+  # 登录响应中 token 的路径（按层级填写）
+  token_json_path: ["data", "token"]
+  token_env: "AUTH_TOKEN"
+  cookie_env: "COOKIE"

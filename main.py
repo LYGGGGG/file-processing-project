@@ -12,6 +12,7 @@ from fetcher import (
     fetch_all_real_train_info,
     filter_codes_for_day,
 )
+from login import login_and_refresh_auth
 
 from processor import split_excel_by_province
 
@@ -40,6 +41,8 @@ def main() -> None:
     load_dotenv()
     # 读取配置文件
     config = load_config("config.yaml")
+    # 先登录，自动刷新 cookie/token（如果启用）
+    login_and_refresh_auth(config)
 
     # 列表接口配置
     list_cfg = config["list_api"]
