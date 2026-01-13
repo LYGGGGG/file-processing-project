@@ -162,6 +162,7 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     captcha_value = ""
     captcha_key = None
     captcha_rs_id = None
+
     value_env_key = captcha_cfg.get("value_env_key", "CAPTCHA_VALUE")
     key_env_key = captcha_cfg.get("key_env_key", "")
     rs_id_env_key = captcha_cfg.get("rs_id_env_key", "")
@@ -170,6 +171,7 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         captcha_value = _recognize_captcha(image_bytes)
     else:
         captcha_value = os.getenv(value_env_key, "")
+
         if not captcha_value:
             raise ValueError(
                 f"Captcha is disabled but {value_env_key} is empty; "
@@ -191,6 +193,7 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     login_url = login_request["url"]
     login_headers = _deep_inject_env(login_request.get("headers", {}))
     login_params = _deep_inject_env(login_request.get("params_template", {}))
+
     if captcha_rs_id:
         login_params.setdefault(login_request.get("rs_id_param", "_rs_id"), captcha_rs_id)
     if captcha_value:
