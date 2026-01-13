@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from login import _deep_inject_env
 
 # 模块级 logger：供本模块内部统一输出日志
 logger = logging.getLogger(__name__)

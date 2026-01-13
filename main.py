@@ -12,7 +12,6 @@ from fetcher import (
     fetch_all_real_train_info,
     filter_codes_for_day,
 )
-from login import login_and_refresh_auth
 
 from processor import split_excel_by_province
 
