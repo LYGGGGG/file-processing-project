@@ -115,6 +115,10 @@ login_api:
 
   # 验证码接口配置
   captcha:
+    # 若验证码接口不可用，可设置 enabled=false，并通过环境变量提供验证码
+    enabled: false
+    value_env_key: "CAPTCHA_VALUE"
+    key_env_key: "CAPTCHA_KEY"
     url: "https://bgwlgl.bbwport.com/api/auth/captcha"
     method: "GET"
     timeout: 10
@@ -135,13 +139,18 @@ login_api:
 
   # 登录接口配置
   login:
-    url: "https://bgwlgl.bbwport.com/api/auth/login"
+    # 登录地址（根据浏览器 Network 捕获）
+    url: "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do"
     method: "POST"
     timeout: 15
     headers:
       accept: "application/json, text/plain, */*"
       content-type: "application/json;charset=UTF-8"
       user-agent: "Mozilla/5.0"
+    # 登录接口的 query 参数（按 Network 里的 Request URL 填写）
+    params_template:
+      _rs_id: "${LOGIN_RS_ID}"
+      _randomCode_: "${CAPTCHA_VALUE}"
     payload_template:
       username: "${LOGIN_USERNAME}"
       password: "${LOGIN_PASSWORD}"

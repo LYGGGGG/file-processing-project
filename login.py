@@ -140,8 +140,22 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
 
     session = requests.Session()
     captcha_cfg = login_cfg["captcha"]
-    image_bytes, captcha_key = _request_captcha(session, captcha_cfg)
-    captcha_value = _recognize_captcha(image_bytes)
+    captcha_value = ""
+    captcha_key = None
+    if captcha_cfg.get("enabled", True):
+        image_bytes, captcha_key = _request_captcha(session, captcha_cfg)
+        captcha_value = _recognize_captcha(image_bytes)
+    else:
+        value_env_key = captcha_cfg.get("value_env_key", "CAPTCHA_VALUE")
+        captcha_value = os.getenv(value_env_key, "")
+        key_env_key = captcha_cfg.get("key_env_key", "")
+        if key_env_key:
+            captcha_key = os.getenv(key_env_key, None)
+        if not captcha_value:
+            raise ValueError(
+                f"Captcha is disabled but {value_env_key} is empty; "
+                "please set the captcha value or enable captcha request."
+            )
 
     if not captcha_value:
         raise ValueError("Captcha recognition failed; got empty result")
@@ -152,6 +166,7 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     login_method = login_request.get("method", "POST").upper()
     login_url = login_request["url"]
     login_headers = _deep_inject_env(login_request.get("headers", {}))
+    login_params = _deep_inject_env(login_request.get("params_template", {}))
     payload_template = _deep_inject_env(login_request.get("payload_template", {}))
 
     captcha_field = login_request.get("captcha_field", "captcha")
@@ -163,14 +178,16 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         resp = session.post(
             login_url,
             headers=login_headers,
+            params=login_params,
             json=payload_template,
             timeout=login_request.get("timeout", 15),
         )
     else:
+        merged_params = {**login_params, **payload_template}
         resp = session.get(
             login_url,
             headers=login_headers,
-            params=payload_template,
+            params=merged_params,
             timeout=login_request.get("timeout", 15),
         )
     resp.raise_for_status()
