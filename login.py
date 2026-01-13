@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import requests
@@ -70,6 +71,12 @@ def _strip_data_url(image_data: str) -> str:
     return image_data
 
 
+def _save_captcha_image(image_bytes: bytes, save_path: str) -> None:
+    path = Path(save_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(image_bytes)
+
+
 def _request_captcha(
     session: requests.Session,
     captcha_cfg: Dict[str, Any],
@@ -134,6 +141,9 @@ def _request_captcha(
         if not image_b64:
             raise ValueError("Captcha base64 data is empty")
         image_bytes = base64.b64decode(image_b64)
+        save_path = captcha_cfg.get("save_path", "")
+        if save_path:
+            _save_captcha_image(image_bytes, save_path)
         key_field = captcha_cfg.get("key_field")
         if key_field:
             captcha_key = payload_json.get(key_field)
@@ -156,24 +166,36 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     captcha_value = ""
     captcha_key = None
     captcha_rs_id = None
+
+    value_env_key = captcha_cfg.get("value_env_key", "CAPTCHA_VALUE")
+    key_env_key = captcha_cfg.get("key_env_key", "")
+    rs_id_env_key = captcha_cfg.get("rs_id_env_key", "")
     if captcha_cfg.get("enabled", True):
         image_bytes, captcha_key, captcha_rs_id = _request_captcha(session, captcha_cfg)
-        captcha_value = _recognize_captcha(image_bytes)
+        try:
+            captcha_value = _recognize_captcha(image_bytes)
+        except pytesseract.TesseractNotFoundError:
+            captcha_value = os.getenv(value_env_key, "")
+            if not captcha_value:
+                save_path = captcha_cfg.get("save_path", "")
+                raise ValueError(
+                    "Tesseract is not installed. Please install it or set "
+                    f"{value_env_key} (manual captcha) and retry. "
+                    f"Captcha image saved to {save_path}."
+                )
     else:
-        value_env_key = captcha_cfg.get("value_env_key", "CAPTCHA_VALUE")
         captcha_value = os.getenv(value_env_key, "")
-        key_env_key = captcha_cfg.get("key_env_key", "")
-        if key_env_key:
-            captcha_key = os.getenv(key_env_key, None)
-        rs_id_env_key = captcha_cfg.get("rs_id_env_key", "")
-        if rs_id_env_key:
-            captcha_rs_id = os.getenv(rs_id_env_key, None)
 
         if not captcha_value:
             raise ValueError(
                 f"Captcha is disabled but {value_env_key} is empty; "
                 "please set the captcha value or enable captcha request."
             )
+
+    if key_env_key and not captcha_key:
+        captcha_key = os.getenv(key_env_key, None)
+    if rs_id_env_key and not captcha_rs_id:
+        captcha_rs_id = os.getenv(rs_id_env_key, None)
 
     if not captcha_value:
         raise ValueError("Captcha recognition failed; got empty result")

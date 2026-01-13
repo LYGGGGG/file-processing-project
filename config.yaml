@@ -117,7 +117,6 @@ login_api:
   captcha:
     # 若验证码接口不可用，可设置 enabled=false，并通过环境变量提供验证码
     enabled: true
-
     value_env_key: "CAPTCHA_VALUE"
     key_env_key: "CAPTCHA_KEY"
     rs_id_env_key: "LOGIN_RS_ID"
@@ -131,6 +130,8 @@ login_api:
       user-agent: "Mozilla/5.0"
     params:
       show: "${CAPTCHA_SHOW}"
+    # 可选：保存验证码图片到本地，便于手动 OCR
+    save_path: "data/captcha.png"
     # 如果偶发 409，可设置重试次数与间隔（秒）
     retries: 3
     retry_sleep: 1
