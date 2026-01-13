@@ -5,7 +5,7 @@ list_api:
   # 请求超时（秒）
   timeout: 30
   # 请求失败重试次数
-  retries: 3
+  retries: 10
   # 预留：退避系数（当前逻辑中未使用，可后续扩展）
   retry_backoff_base: 1.5
   # 翻页时每页之间等待（秒）
