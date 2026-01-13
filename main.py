@@ -37,6 +37,14 @@ CONFIG: Dict[str, Any] = {
             "user-agent": "Mozilla/5.0",
             "cookie": "${COOKIE}",
         },
+        "auth_link_flow": {
+            "enabled": True,
+            "transfer_url": "https://bgwlgl.bbwport.com/api/auth/transfer",
+            "portal_url": "https://bgwlgl.bbwport.com:6443/",
+            "me_url": "https://bgwlgl.bbwport.com:6443/me.json",
+            "verify_ssl": False,
+            "auth_token_env": "AUTH_TOKEN",
+        },
         "payload_template": {
             "pageNumber": 0,
             "pageSize": 200,
@@ -213,6 +221,7 @@ def main() -> None:
         retries=list_cfg.get("retries", 3),
         timeout=list_cfg.get("timeout", 30),
         sleep_between_pages=list_cfg.get("sleep_between_pages", 0.2),
+        auth_link_flow=list_cfg.get("auth_link_flow"),
     )
     logger.info("列表接口返回条数=%s", len(rows))
 
