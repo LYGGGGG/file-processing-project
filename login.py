@@ -64,7 +64,16 @@ def _recognize_captcha(image_bytes: bytes) -> str:
     return digits
 
 
-def _request_captcha(session: requests.Session, captcha_cfg: Dict[str, Any]) -> Tuple[bytes, Optional[str]]:
+def _strip_data_url(image_data: str) -> str:
+    if image_data.startswith("data:"):
+        return image_data.split(",", 1)[1] if "," in image_data else ""
+    return image_data
+
+
+def _request_captcha(
+    session: requests.Session,
+    captcha_cfg: Dict[str, Any],
+) -> Tuple[bytes, Optional[str], Optional[str]]:
     method = captcha_cfg.get("method", "GET").upper()
     url = captcha_cfg["url"]
     headers = _deep_inject_env(captcha_cfg.get("headers", {}))
@@ -116,20 +125,24 @@ def _request_captcha(session: requests.Session, captcha_cfg: Dict[str, Any]) -> 
         raise last_exc
     response_type = captcha_cfg.get("response_type", "binary")
     captcha_key = None
+    captcha_rs_id = None
 
     if response_type == "base64_json":
         payload_json = resp.json()
         image_field = captcha_cfg.get("image_field", "data")
-        image_b64 = payload_json.get(image_field, "")
+        image_b64 = _strip_data_url(payload_json.get(image_field, ""))
         if not image_b64:
             raise ValueError("Captcha base64 data is empty")
         image_bytes = base64.b64decode(image_b64)
         key_field = captcha_cfg.get("key_field")
         if key_field:
             captcha_key = payload_json.get(key_field)
-        return image_bytes, captcha_key
+        rs_id_field = captcha_cfg.get("rs_id_field")
+        if rs_id_field:
+            captcha_rs_id = payload_json.get(rs_id_field)
+        return image_bytes, captcha_key, captcha_rs_id
 
-    return resp.content, None
+    return resp.content, None, None
 
 
 def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
@@ -142,8 +155,9 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     captcha_cfg = login_cfg["captcha"]
     captcha_value = ""
     captcha_key = None
+    captcha_rs_id = None
     if captcha_cfg.get("enabled", True):
-        image_bytes, captcha_key = _request_captcha(session, captcha_cfg)
+        image_bytes, captcha_key, captcha_rs_id = _request_captcha(session, captcha_cfg)
         captcha_value = _recognize_captcha(image_bytes)
     else:
         value_env_key = captcha_cfg.get("value_env_key", "CAPTCHA_VALUE")
@@ -151,6 +165,10 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         key_env_key = captcha_cfg.get("key_env_key", "")
         if key_env_key:
             captcha_key = os.getenv(key_env_key, None)
+        rs_id_env_key = captcha_cfg.get("rs_id_env_key", "")
+        if rs_id_env_key:
+            captcha_rs_id = os.getenv(rs_id_env_key, None)
+
         if not captcha_value:
             raise ValueError(
                 f"Captcha is disabled but {value_env_key} is empty; "
@@ -167,6 +185,11 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     login_url = login_request["url"]
     login_headers = _deep_inject_env(login_request.get("headers", {}))
     login_params = _deep_inject_env(login_request.get("params_template", {}))
+
+    if captcha_rs_id:
+        login_params.setdefault(login_request.get("rs_id_param", "_rs_id"), captcha_rs_id)
+    if captcha_value:
+        login_params.setdefault(login_request.get("random_code_param", "_randomCode_"), captcha_value)
     payload_template = _deep_inject_env(login_request.get("payload_template", {}))
 
     captcha_field = login_request.get("captcha_field", "captcha")

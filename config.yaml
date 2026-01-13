@@ -119,7 +119,8 @@ login_api:
     enabled: false
     value_env_key: "CAPTCHA_VALUE"
     key_env_key: "CAPTCHA_KEY"
-    url: "https://bgwlgl.bbwport.com/api/auth/captcha"
+    rs_id_env_key: "LOGIN_RS_ID"
+    url: "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/random"
     method: "GET"
     timeout: 10
     headers:
@@ -127,6 +128,8 @@ login_api:
       origin: "https://bgwlgl.bbwport.com"
       referer: "https://bgwlgl.bbwport.com/"
       user-agent: "Mozilla/5.0"
+    params:
+      show: "${CAPTCHA_SHOW}"
     # 如果偶发 409，可设置重试次数与间隔（秒）
     retries: 3
     retry_sleep: 1
@@ -136,6 +139,8 @@ login_api:
     image_field: "randomCodeImage"
     # 如果返回里有 captcha key，可在这里声明
     key_field: "captchaKey"
+    # 如果返回里有 _rs_id，可在这里声明
+    rs_id_field: "_rs_id"
 
   # 登录接口配置
   login:
@@ -148,9 +153,9 @@ login_api:
       content-type: "application/json;charset=UTF-8"
       user-agent: "Mozilla/5.0"
     # 登录接口的 query 参数（按 Network 里的 Request URL 填写）
-    params_template:
-      _rs_id: "${LOGIN_RS_ID}"
-      _randomCode_: "${CAPTCHA_VALUE}"
+    params_template: {}
+    rs_id_param: "_rs_id"
+    random_code_param: "_randomCode_"
     payload_template:
       username: "${LOGIN_USERNAME}"
       password: "${LOGIN_PASSWORD}"
