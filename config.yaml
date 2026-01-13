@@ -111,7 +111,7 @@ processing:
 
 login_api:
   # 是否启用自动登录刷新 cookie/token
-  enabled: false
+  enabled: true
 
   # 验证码接口配置
   captcha:
