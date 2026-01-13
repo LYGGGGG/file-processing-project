@@ -122,9 +122,9 @@ login_api:
       accept: "application/json, text/plain, */*"
       user-agent: "Mozilla/5.0"
     # response_type: "binary" | "base64_json"
-    response_type: "binary"
+    response_type: "base64_json"
     # base64_json 模式时需要指定字段
-    image_field: "data"
+    image_field: "randomCodeImage"
     # 如果返回里有 captcha key，可在这里声明
     key_field: "captchaKey"
 
