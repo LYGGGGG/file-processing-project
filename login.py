@@ -45,10 +45,6 @@ def _extract_json_path(data: Dict[str, Any], path: Iterable[str]) -> Optional[An
     return current
 
 
-def _cookies_to_header(session: requests.Session) -> str:
-    return "; ".join([f"{c.name}={c.value}" for c in session.cookies])
-
-
 def _preprocess_captcha(image_bytes: bytes) -> Image.Image:
     image = Image.open(BytesIO(image_bytes)).convert("L")
     image = ImageOps.invert(image)
@@ -263,7 +259,6 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
             raise ValueError("登录接口返回值不是 JSON") from exc
         token = _extract_json_path(payload, token_path)
 
-    cookie_header = _cookies_to_header(session)
     updates: Dict[str, str] = {}
 
     if token:
@@ -271,12 +266,6 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         os.environ[token_env] = str(token)
         updates[token_env] = str(token)
         logger.info("登录获取 token：%s=%s", token_env, token)
-
-    if cookie_header:
-        cookie_env = login_cfg.get("cookie_env", "COOKIE")
-        os.environ[cookie_env] = cookie_header
-        updates[cookie_env] = cookie_header
-        logger.info("登录获取 cookie：%s=%s", cookie_env, cookie_header)
 
     logger.info("登录完成，更新环境变量：%s", ",".join(updates.keys()))
     return updates
