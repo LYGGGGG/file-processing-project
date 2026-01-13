@@ -54,17 +54,17 @@ def split_excel_by_province(
     """
     input_file = Path(input_path)
     if not input_file.exists():
-        raise FileNotFoundError(f"Input Excel not found: {input_path}")
+        raise FileNotFoundError(f"未找到输入 Excel 文件: {input_path}")
 
     df = pd.read_excel(input_file)
 
     if consigner_value:
         if consigner_field not in df.columns:
-            raise KeyError(f"Missing column: {consigner_field}")
+            raise KeyError(f"缺少列: {consigner_field}")
         df = df[df[consigner_field] == consigner_value]
 
     if province_field not in df.columns:
-        raise KeyError(f"Missing column: {province_field}")
+        raise KeyError(f"缺少列: {province_field}")
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -73,7 +73,7 @@ def split_excel_by_province(
     for province, group in df.groupby(province_field, dropna=False):
         province_name = "" if pd.isna(province) else str(province)
         if not province_name.strip():
-            logger.warning("Skip empty province group")
+            logger.warning("跳过空省份分组")
             continue
 
         safe_name = _sanitize_filename(province_name)
@@ -81,7 +81,6 @@ def split_excel_by_province(
         output_path = output_root / file_name
         group.to_excel(output_path, index=False, sheet_name=sheet_name, engine="openpyxl")
         outputs[province_name] = output_path
-        logger.info("Exported %s rows for province=%s -> %s", len(group), province_name, output_path)
+        logger.info("省份=%s 导出行数=%s -> %s", province_name, len(group), output_path)
 
     return outputs
-
