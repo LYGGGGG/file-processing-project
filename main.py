@@ -180,6 +180,19 @@ def _validate_auth_headers(section: str, headers: Dict[str, Any]) -> None:
         )
 
 
+def _sync_auth_token_from_cookie(cookie_header: str, env_key: str = "AUTH_TOKEN") -> None:
+    if not cookie_header or os.getenv(env_key):
+        return
+    for part in cookie_header.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        if key.strip() == "AUTH_TOKEN" and value.strip():
+            os.environ[env_key] = value.strip()
+            return
+
+
 def main() -> None:
     """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
     # 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
@@ -195,6 +208,10 @@ def main() -> None:
             preferred_keys=("AUTH_TOKEN", "BGWL-EXEC-PROD", "HWWAFSESID", "HWWAFSESTIME"),
         )
         os.environ[login_cfg.get("cookie_env", "COOKIE")] = cookie_header
+        _sync_auth_token_from_cookie(cookie_header, env_key=login_cfg.get("token_env", "AUTH_TOKEN"))
+    else:
+        cookie_env_key = login_cfg.get("cookie_env", "COOKIE")
+        _sync_auth_token_from_cookie(os.getenv(cookie_env_key, ""))
 
     _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
     _validate_auth_headers("export_api", config["export_api"].get("headers", {}))
