@@ -6,7 +6,6 @@ from typing import Any, Dict
 
 from dotenv import load_dotenv
 
-import login
 from fetcher import (
     download_export_loaded_box_xlsx,
     fetch_all_real_train_info,
@@ -128,6 +127,7 @@ CONFIG: Dict[str, Any] = {
             "url": "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do",
             "method": "POST",
             "timeout": 15,
+            "password_hash": "md5",
             "headers": {
                 "accept": "application/json, text/plain, */*",
                 "content-type": "application/json;charset=UTF-8",
@@ -259,5 +259,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # main()
-    login.test()
+    main()

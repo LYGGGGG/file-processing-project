@@ -1,112 +1,181 @@
-def test():
-    # -*- coding: utf-8 -*-
-    import hashlib
-    import json
-    import time
-    from typing import Callable
-    import ddddocr, base64, re
-    import requests
+"""登录辅助：仅用于获取 cookie/token。"""
 
-    # 保存验证ma
-    def save_api_data():
-        url = "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/random?show=1753427607760"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
-            rs_id = data["_rs_id"]
-            # 保存图片
-            image_data = data["randomCodeImage"]
-            match = re.match(r"data:image/(\w+);base64,(.*)", image_data)
+from __future__ import annotations
 
-            if match:
-                img_format = match.group(1)
-                img_data = match.group(2)
-                # 直接解码base64数据，避免写入临时文件
-                image_bytes = base64.b64decode(img_data)
+import base64
+import hashlib
+import logging
+import os
+import re
+from pathlib import Path
+from typing import Any, Dict, Mapping, MutableMapping, Optional
 
-                # 直接使用解码后的数据进行OCR识别
-                ocr = ddddocr.DdddOcr()
-                text = ocr.classification(image_bytes)
-                # print(text)
-            # 保存rs_id
-            # with open("rs_id.txt", "w") as f:
-            #     f.write(data["_rs_id"])
+import ddddocr
+import requests
 
-            return rs_id, text
-        except Exception as e:
-            print(f"发生错误: {e}")
+logger = logging.getLogger(__name__)
 
-    """工厂函数生成指定输出格式的MD5计算函数"""
 
-    def create_output_method(method: str) -> Callable[[str], str]:
-        def hash_func(input_str: str) -> str:
-            md5 = hashlib.md5(input_str.encode('utf-8'))
-            if method == 'hexdigest':
-                return md5.hexdigest()
-            elif method == 'digest':
-                return md5.digest().decode('latin1')
-            raise ValueError(f"Unsupported method: {method}")
+def _deep_inject_env(value: Any) -> Any:
+    if isinstance(value, str):
+        if value.startswith("${") and value.endswith("}"):
+            env_key = value[2:-1]
+            return os.getenv(env_key, value)
+        return value
+    if isinstance(value, list):
+        return [_deep_inject_env(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_deep_inject_env(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _deep_inject_env(item) for key, item in value.items()}
+    return value
 
-        return hash_func
 
-    # 获取cookie
-    def get_cookie():
-        temp = save_api_data()
-        rs_id = temp[0]
-        code = temp[1]
-        # print(rs_id,code)
-        md5_hex = create_output_method('hexdigest')
-        dataList = {
-            "rsid": rs_id,
-            "code": code,
-            "password": md5_hex("${LOGIN_PASSWORD}"),
-            "username": "${LOGIN_USERNAME}",
+def _md5_hex(value: str) -> str:
+    return hashlib.md5(value.encode("utf-8")).hexdigest()
+
+
+def _decode_base64_image(raw: str) -> bytes:
+    match = re.match(r"data:image/(\w+);base64,(.*)", raw)
+    data = match.group(2) if match else raw
+    return base64.b64decode(data)
+
+
+def _fetch_captcha(session: requests.Session, config: Mapping[str, Any]) -> Optional[Dict[str, str]]:
+    if not config.get("enabled", False):
+        return None
+
+    value_env_key = config.get("value_env_key")
+    key_env_key = config.get("key_env_key")
+    rs_id_env_key = config.get("rs_id_env_key")
+
+    env_value = os.getenv(value_env_key) if value_env_key else None
+    if env_value:
+        return {
+            "value": env_value,
+            "key": os.getenv(key_env_key) if key_env_key else "",
+            "rs_id": os.getenv(rs_id_env_key) if rs_id_env_key else "",
         }
 
-        dataList = json.dumps(dataList)
-        headers = {
-            "accept": "application/json, text/plain, */*",
-            "content-type": "application/json;charset=UTF-8",
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-        }
-        session = requests.Session()
-        # 1. 首先执行登录 POST 请求
-        url = f"https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do?_rs_id={rs_id}&_randomCode_={code}"
-        login_response = session.post(url, headers=headers, data=dataList)
-        # print(login_response.json()['data'])
+    url = config.get("url")
+    if not url:
+        raise ValueError("captcha.url 未配置")
 
-        return login_response, session
+    headers = _deep_inject_env(config.get("headers", {}))
+    params = _deep_inject_env(config.get("params", {}))
+    timeout = int(config.get("timeout", 10))
 
-    def verify_cookies():
-        temp = get_cookie()
+    response = session.request(config.get("method", "GET"), url, headers=headers, params=params, timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
 
-        # 从登录响应中获取所有 cookies
-        cookies_list = temp[1].cookies.items()
-        # print("cookies_list:")
-        # print(cookies_list)
+    image_field = config.get("image_field", "randomCodeImage")
+    raw_image = payload.get(image_field, "")
+    if not raw_image:
+        raise ValueError("验证码响应缺少图片字段")
 
-        # 获取 AUTH_TOKEN
-        auth_token = temp[0].json()['data']
-        # print("AUTH_TOKEN:")
-        # print(auth_token)
-        # 确保从正确的 session 中获取 BGWL-EXEC-PROD
-        bgwl_exec_prod = temp[1].cookies.get('BGWL-EXEC-PROD')
-        cookies = {
-            'IGNORE-SESSION': '-',
-            'AUTH_TOKEN': auth_token,
-            'BGWL-EXEC-PROD': bgwl_exec_prod,
-            'HWWAFSESTIME': cookies_list[1][1],
-            'HWWAFSESID': cookies_list[0][1],
-        }
-        print('最终的cookie:', cookies)
+    image_bytes = _decode_base64_image(raw_image)
+
+    save_path = config.get("save_path")
+    if save_path:
+        path_obj = Path(save_path)
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        path_obj.write_bytes(image_bytes)
+
+    ocr = ddddocr.DdddOcr()
+    value = ocr.classification(image_bytes)
+
+    return {
+        "value": value,
+        "key": payload.get(config.get("key_field", "captchaKey"), ""),
+        "rs_id": payload.get(config.get("rs_id_field", "_rs_id"), ""),
+    }
 
 
+def _build_cookie_string(cookiejar: requests.cookies.RequestsCookieJar) -> str:
+    cookies = requests.utils.dict_from_cookiejar(cookiejar)
+    return "; ".join([f"{key}={value}" for key, value in cookies.items()])
 
 
-        return cookies
+def _apply_auth_to_headers(headers: MutableMapping[str, str], token: str, cookie: str) -> None:
+    for key, value in list(headers.items()):
+        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+            env_key = value[2:-1]
+            if env_key == "AUTH_TOKEN":
+                headers[key] = token
+            elif env_key == "COOKIE":
+                headers[key] = cookie
 
-    try:
-        return verify_cookies()
-    except Exception as e:
-        print(f"GWL-EXEC-PROD验证失败: {e}")
+
+def login_and_refresh_auth(config: MutableMapping[str, Any]) -> Optional[Dict[str, str]]:
+    login_cfg = config.get("login_api")
+    if not isinstance(login_cfg, Mapping) or not login_cfg.get("enabled", False):
+        return None
+
+    session = requests.Session()
+
+    captcha_cfg = login_cfg.get("captcha", {})
+    captcha_result = _fetch_captcha(session, captcha_cfg)
+
+    login_conf = login_cfg.get("login", {})
+    url = login_conf.get("url")
+    if not url:
+        raise ValueError("login.url 未配置")
+
+    headers = _deep_inject_env(login_conf.get("headers", {}))
+    params = _deep_inject_env(login_conf.get("params_template", {}))
+    payload = _deep_inject_env(login_conf.get("payload_template", {}))
+
+    if captcha_result:
+        payload[login_conf.get("captcha_field", "captcha")] = captcha_result["value"]
+        captcha_key_field = login_conf.get("captcha_key_field")
+        if captcha_key_field and captcha_result.get("key"):
+            payload[captcha_key_field] = captcha_result["key"]
+
+        rs_id = captcha_result.get("rs_id")
+        if rs_id:
+            params[login_conf.get("rs_id_param", "_rs_id")] = rs_id
+        params[login_conf.get("random_code_param", "_randomCode_")] = captcha_result["value"]
+
+    if login_conf.get("password_hash") == "md5" and "password" in payload:
+        payload["password"] = _md5_hex(str(payload["password"]))
+
+    timeout = int(login_conf.get("timeout", 15))
+    response = session.request(
+        login_conf.get("method", "POST"),
+        url,
+        headers=headers,
+        params=params,
+        json=payload,
+        timeout=timeout,
+    )
+    response.raise_for_status()
+
+    response_data = response.json()
+    token_path = login_cfg.get("token_json_path", ["data", "token"])
+    token: Optional[Any] = response_data
+    for key in token_path:
+        if not isinstance(token, Mapping) or key not in token:
+            token = None
+            break
+        token = token[key]
+    if token is None:
+        raise ValueError("登录响应未返回 token")
+
+    cookie_string = _build_cookie_string(session.cookies)
+
+    token_env = login_cfg.get("token_env", "AUTH_TOKEN")
+    cookie_env = login_cfg.get("cookie_env", "COOKIE")
+    os.environ[token_env] = str(token)
+    os.environ[cookie_env] = cookie_string
+
+    for section in ("list_api", "export_api"):
+        section_cfg = config.get(section)
+        if not isinstance(section_cfg, Mapping):
+            continue
+        headers_section = section_cfg.get("headers")
+        if isinstance(headers_section, MutableMapping):
+            _apply_auth_to_headers(headers_section, str(token), cookie_string)
+
+    logger.info("登录成功，已刷新 AUTH_TOKEN 与 COOKIE")
+    return {"auth_token": str(token), "cookie": cookie_string}
