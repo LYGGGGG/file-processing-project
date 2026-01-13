@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import time
 from io import BytesIO
 from typing import Any, Dict, Iterable, Optional, Tuple
 
@@ -69,13 +70,50 @@ def _request_captcha(session: requests.Session, captcha_cfg: Dict[str, Any]) -> 
     headers = _deep_inject_env(captcha_cfg.get("headers", {}))
     params = _deep_inject_env(captcha_cfg.get("params", {}))
     payload = _deep_inject_env(captcha_cfg.get("payload", {}))
+    retries = int(captcha_cfg.get("retries", 0))
+    retry_sleep = float(captcha_cfg.get("retry_sleep", 1))
 
-    if method == "POST":
-        resp = session.post(url, headers=headers, params=params, json=payload, timeout=captcha_cfg.get("timeout", 10))
-    else:
-        resp = session.get(url, headers=headers, params=params, timeout=captcha_cfg.get("timeout", 10))
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        if method == "POST":
+            resp = session.post(
+                url,
+                headers=headers,
+                params=params,
+                json=payload,
+                timeout=captcha_cfg.get("timeout", 10),
+            )
+        else:
+            resp = session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=captcha_cfg.get("timeout", 10),
+            )
 
-    resp.raise_for_status()
+        if resp.status_code == 409:
+            logger.warning(
+                "captcha request conflict (409) on attempt %s/%s: %s",
+                attempt + 1,
+                retries + 1,
+                resp.text,
+            )
+            if attempt < retries:
+                time.sleep(retry_sleep)
+                continue
+        try:
+            resp.raise_for_status()
+            last_exc = None
+            break
+        except requests.HTTPError as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(retry_sleep)
+                continue
+            raise
+
+    if last_exc:
+        raise last_exc
     response_type = captcha_cfg.get("response_type", "binary")
     captcha_key = None
 
