@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from dotenv import load_dotenv
 
-import login
+from login import login_and_refresh_auth
 from fetcher import (
     download_export_loaded_box_xlsx,
     fetch_all_real_train_info,
