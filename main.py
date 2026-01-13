@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 from dotenv import load_dotenv
 
-from login import login_and_refresh_auth
+import login
 from fetcher import (
     download_export_loaded_box_xlsx,
     fetch_all_real_train_info,
@@ -260,4 +260,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    login.test()
