@@ -3,3 +3,5 @@ pandas
 openpyxl
 PyYAML
 python-dotenv
+pillow
+pytesseract

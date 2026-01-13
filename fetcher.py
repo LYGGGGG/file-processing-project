@@ -1,55 +1,17 @@
 import logging
 import math
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
 
+from login import _deep_inject_env
+
 # 模块级 logger：供本模块内部统一输出日志
 logger = logging.getLogger(__name__)
 # 统一日志格式，便于排查请求与分页等流程
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-
-
-# -------------------------
-# helpers: env inject
-# -------------------------
-
-def _inject_env(value: Any) -> Any:
-    """把形如 ${AUTH_TOKEN} 的字符串替换成环境变量值；其他类型原样返回。
-
-    参数:
-        value: 任意配置值，可能是字符串，也可能是其他类型。
-
-    返回:
-        - 若 value 是 "${SOME_ENV}" 形式，则替换为环境变量值（取不到则返回空字符串）。
-        - 其他类型原样返回。
-    """
-    if not isinstance(value, str):
-        return value
-    if value.startswith("${") and value.endswith("}"):
-        key = value[2:-1]
-        return os.getenv(key, "")
-    return value
-
-
-def _deep_inject_env(obj: Any) -> Any:
-    """递归替换 dict/list 中的 ${VAR} 占位符。
-
-    参数:
-        obj: 允许是 dict / list / 基础类型。
-
-    返回:
-        对 dict / list 进行递归遍历后替换环境变量占位符。
-    """
-    if isinstance(obj, dict):
-        return {k: _deep_inject_env(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_deep_inject_env(x) for x in obj]
-    return _inject_env(obj)
-
 
 
 # -------------------------
