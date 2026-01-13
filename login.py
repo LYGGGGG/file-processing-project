@@ -51,10 +51,14 @@ def _request_captcha(config: Dict[str, Any]) -> Tuple[str, str]:
             rs_id = data[captcha_cfg["rs_id_field"]]
 
             match = re.match(r"data:image/(\\w+);base64,(.*)", image_data)
-            if not match:
+            if match:
+                image_base64 = match.group(2)
+            else:
+                image_base64 = image_data
+            if not image_base64:
                 raise ValueError("验证码图片格式解析失败")
 
-            image_bytes = base64.b64decode(match.group(2))
+            image_bytes = base64.b64decode(image_base64)
             ocr = ddddocr.DdddOcr()
             captcha_value = ocr.classification(image_bytes)
             return rs_id, captcha_value
