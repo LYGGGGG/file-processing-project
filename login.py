@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import requests
+import ddddocr
 from PIL import Image, ImageFilter, ImageOps
-import pytesseract
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+_OCR = ddddocr.DdddOcr(show_ad=False)
 
 
 def _inject_env(value: Any) -> Any:
@@ -57,10 +59,9 @@ def _preprocess_captcha(image_bytes: bytes) -> Image.Image:
 
 def _recognize_captcha(image_bytes: bytes) -> str:
     image = _preprocess_captcha(image_bytes)
-    text = pytesseract.image_to_string(
-        image,
-        config="--psm 8 -c tessedit_char_whitelist=0123456789",
-    )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    text = _OCR.classification(buffer.getvalue())
     digits = "".join(ch for ch in text if ch.isdigit())
     return digits
 
@@ -172,14 +173,13 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     rs_id_env_key = captcha_cfg.get("rs_id_env_key", "")
     if captcha_cfg.get("enabled", True):
         image_bytes, captcha_key, captcha_rs_id = _request_captcha(session, captcha_cfg)
-        try:
-            captcha_value = _recognize_captcha(image_bytes)
-        except pytesseract.TesseractNotFoundError:
+        captcha_value = _recognize_captcha(image_bytes)
+        if not captcha_value:
             captcha_value = os.getenv(value_env_key, "")
             if not captcha_value:
                 save_path = captcha_cfg.get("save_path", "")
                 raise ValueError(
-                    "Tesseract is not installed. Please install it or set "
+                    "Captcha recognition failed. Please set "
                     f"{value_env_key} (manual captcha) and retry. "
                     f"Captcha image saved to {save_path}."
                 )
