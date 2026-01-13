@@ -93,20 +93,20 @@ def main() -> None:
         timeout=list_cfg.get("timeout", 30),
         sleep_between_pages=list_cfg.get("sleep_between_pages", 0.2),
     )
-    logger.info("listRealTrainInfo rows=%s", len(rows))
+    logger.info("列表接口返回条数=%s", len(rows))
 
     # 2) 可选保存原始 rows，便于核对/调试
     if run_cfg.get("save_sample_rows", False):
         sample_path = run_cfg.get("sample_rows_path", "sample_rows.json")
         with open(sample_path, "w", encoding="utf-8") as handle:
             json.dump(rows, handle, ensure_ascii=False, indent=2)
-        logger.info("saved sample_rows.json -> %s", sample_path)
+        logger.info("已保存 sample_rows.json -> %s", sample_path)
 
     # 3) 本地按日期筛选 real_train_code
     target_day = run_cfg["target_day"]
     codes = filter_codes_for_day(rows, target_day)
-    logger.info("filtered codes for %s => %s", target_day, len(codes))
-    logger.info("codes=%s", ",".join(codes))
+    logger.info("按日期 %s 筛选车次数量=%s", target_day, len(codes))
+    logger.info("车次清单=%s", ",".join(codes))
 
     # 4) 根据配置拼接输出文件路径
     export_cfg = config["export_api"]
@@ -124,7 +124,7 @@ def main() -> None:
         retries=export_cfg.get("retries", 3),
         timeout=export_cfg.get("timeout", 60),
     )
-    logger.info("saved excel => %s", saved)
+    logger.info("已保存 Excel => %s", saved)
 
     # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按省份拆分
 
@@ -141,7 +141,7 @@ def main() -> None:
             sheet_name=processing_cfg.get("sheet_name", "data"),
             output_template=processing_cfg.get("output_template", "{province}.xlsx"),
         )
-        logger.info("province split outputs=%s", list(outputs.values()))
+        logger.info("省份拆分输出=%s", list(outputs.values()))
 
 
 if __name__ == "__main__":

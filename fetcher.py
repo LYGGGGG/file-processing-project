@@ -64,12 +64,13 @@ def fetch_all_real_train_info(
         last_exc: Optional[Exception] = None
         for attempt in range(1, retries + 1):
             try:
+                logger.info("列表接口请求 URL：%s", url)
                 resp = session.post(url, json=data, headers=headers, timeout=timeout)
                 resp.raise_for_status()
                 return resp.json()
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
-                logger.warning("Request failed (attempt %s/%s): %s", attempt, retries, exc)
+                logger.warning("请求失败（第 %s/%s 次）：%s", attempt, retries, exc)
                 # 指数退避等待，降低短时间内连续失败的概率
                 time.sleep(2 ** attempt)
         raise last_exc  # type: ignore[misc]
@@ -87,7 +88,7 @@ def fetch_all_real_train_info(
     rows = first.get(rows_field, []) or []
     all_rows: List[Dict[str, Any]] = list(rows)
 
-    logger.info("total=%s, page_size=%s, first_page_rows=%s", total, page_size, len(rows))
+    logger.info("分页汇总：总数=%s, 每页=%s, 首页条数=%s", total, page_size, len(rows))
 
     # 如果第一页已返回全部数据，直接返回
     if total <= len(all_rows):
@@ -105,7 +106,13 @@ def fetch_all_real_train_info(
         rows = data.get(rows_field, []) or []
         all_rows.extend(rows)
 
-        logger.info("page %s/%s -> fetched=%s, accumulated=%s", i + 1, total_pages, len(rows), len(all_rows))
+        logger.info(
+            "分页拉取：第 %s/%s 页，获取=%s，累计=%s",
+            i + 1,
+            total_pages,
+            len(rows),
+            len(all_rows),
+        )
         # 控制请求频率，避免被接口限流
         time.sleep(sleep_between_pages)
 
@@ -179,7 +186,7 @@ def download_export_loaded_box_xlsx(
         保存后的文件路径字符串。
     """
     if not real_train_codes:
-        raise ValueError("real_train_codes is empty")
+        raise ValueError("real_train_codes 为空，无法导出")
 
     # Session 复用连接
     session = requests.Session()
@@ -192,6 +199,7 @@ def download_export_loaded_box_xlsx(
     last_exc: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
+            logger.info("导出接口请求 URL：%s", url)
             resp = session.post(url, json=payload, headers=headers, timeout=timeout)
             resp.raise_for_status()
 
@@ -205,10 +213,10 @@ def download_export_loaded_box_xlsx(
             return out_path
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
-            logger.warning("Export download failed (attempt %s/%s): %s", attempt, retries, exc)
+            logger.warning("导出下载失败（第 %s/%s 次）：%s", attempt, retries, exc)
             # 下载失败时指数退避等待
             time.sleep(2 ** attempt)
 
     if last_exc is not None:
         raise last_exc
-    raise RuntimeError("Export download failed but no exception captured")
+    raise RuntimeError("导出下载失败，但未捕获到异常")

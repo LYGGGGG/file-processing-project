@@ -78,6 +78,14 @@ def _save_captcha_image(image_bytes: bytes, save_path: str) -> None:
     path.write_bytes(image_bytes)
 
 
+def _build_request_url(method: str, url: str, params: Optional[Dict[str, Any]]) -> str:
+    if not params:
+        return url
+    req = requests.Request(method=method, url=url, params=params)
+    prepared = req.prepare()
+    return prepared.url
+
+
 def _request_captcha(
     session: requests.Session,
     captcha_cfg: Dict[str, Any],
@@ -89,10 +97,13 @@ def _request_captcha(
     payload = _deep_inject_env(captcha_cfg.get("payload", {}))
     retries = int(captcha_cfg.get("retries", 0))
     retry_sleep = float(captcha_cfg.get("retry_sleep", 1))
+    full_url = _build_request_url(method, url, params)
+    logger.info("验证码接口 URL：%s", full_url)
 
     last_exc: Optional[Exception] = None
     for attempt in range(retries + 1):
         if method == "POST":
+            logger.info("验证码请求方式：POST，payload=%s", payload)
             resp = session.post(
                 url,
                 headers=headers,
@@ -101,6 +112,7 @@ def _request_captcha(
                 timeout=captcha_cfg.get("timeout", 10),
             )
         else:
+            logger.info("验证码请求方式：GET")
             resp = session.get(
                 url,
                 headers=headers,
@@ -110,7 +122,7 @@ def _request_captcha(
 
         if resp.status_code == 409:
             logger.warning(
-                "captcha request conflict (409) on attempt %s/%s: %s",
+                "验证码请求冲突(409)，第 %s/%s 次：%s",
                 attempt + 1,
                 retries + 1,
                 resp.text,
@@ -140,7 +152,7 @@ def _request_captcha(
         image_field = captcha_cfg.get("image_field", "data")
         image_b64 = _strip_data_url(payload_json.get(image_field, ""))
         if not image_b64:
-            raise ValueError("Captcha base64 data is empty")
+            raise ValueError("验证码 base64 数据为空")
         image_bytes = base64.b64decode(image_b64)
         save_path = captcha_cfg.get("save_path", "")
         if save_path:
@@ -159,7 +171,7 @@ def _request_captcha(
 def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
     login_cfg = config.get("login_api", {})
     if not login_cfg.get("enabled", False):
-        logger.info("login_api disabled, skip login flow")
+        logger.info("login_api 未启用，跳过登录流程")
         return {}
 
     session = requests.Session()
@@ -179,17 +191,17 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
             if not captcha_value:
                 save_path = captcha_cfg.get("save_path", "")
                 raise ValueError(
-                    "Captcha recognition failed. Please set "
-                    f"{value_env_key} (manual captcha) and retry. "
-                    f"Captcha image saved to {save_path}."
+                    "验证码识别失败。请设置 "
+                    f"{value_env_key}（手工输入验证码）后重试。"
+                    f"验证码图片已保存至 {save_path}。"
                 )
     else:
         captcha_value = os.getenv(value_env_key, "")
 
         if not captcha_value:
             raise ValueError(
-                f"Captcha is disabled but {value_env_key} is empty; "
-                "please set the captcha value or enable captcha request."
+                f"验证码请求已关闭，但 {value_env_key} 为空；"
+                "请设置验证码值或启用验证码请求。"
             )
 
     if key_env_key and not captcha_key:
@@ -198,15 +210,17 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         captcha_rs_id = os.getenv(rs_id_env_key, None)
 
     if not captcha_value:
-        raise ValueError("Captcha recognition failed; got empty result")
+        raise ValueError("验证码识别失败，结果为空")
 
-    logger.info("captcha recognized: %s", captcha_value)
+    logger.info("验证码识别完成：%s", captcha_value)
 
     login_request = login_cfg["login"]
     login_method = login_request.get("method", "POST").upper()
     login_url = login_request["url"]
     login_headers = _deep_inject_env(login_request.get("headers", {}))
     login_params = _deep_inject_env(login_request.get("params_template", {}))
+    login_full_url = _build_request_url(login_method, login_url, login_params)
+    logger.info("登录接口 URL：%s", login_full_url)
 
     if captcha_rs_id:
         login_params.setdefault(login_request.get("rs_id_param", "_rs_id"), captcha_rs_id)
@@ -220,6 +234,7 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         payload_template[login_request["captcha_key_field"]] = captcha_key
 
     if login_method == "POST":
+        logger.info("登录请求方式：POST，参数=%s，payload=%s", login_params, payload_template)
         resp = session.post(
             login_url,
             headers=login_headers,
@@ -229,6 +244,8 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         )
     else:
         merged_params = {**login_params, **payload_template}
+        login_full_url = _build_request_url(login_method, login_url, merged_params)
+        logger.info("登录请求方式：GET，完整 URL：%s", login_full_url)
         resp = session.get(
             login_url,
             headers=login_headers,
@@ -243,7 +260,7 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         try:
             payload = resp.json()
         except json.JSONDecodeError as exc:
-            raise ValueError("Login response is not JSON") from exc
+            raise ValueError("登录接口返回值不是 JSON") from exc
         token = _extract_json_path(payload, token_path)
 
     cookie_header = _cookies_to_header(session)
@@ -253,11 +270,13 @@ def login_and_refresh_auth(config: Dict[str, Any]) -> Dict[str, str]:
         token_env = login_cfg.get("token_env", "AUTH_TOKEN")
         os.environ[token_env] = str(token)
         updates[token_env] = str(token)
+        logger.info("登录获取 token：%s=%s", token_env, token)
 
     if cookie_header:
         cookie_env = login_cfg.get("cookie_env", "COOKIE")
         os.environ[cookie_env] = cookie_header
         updates[cookie_env] = cookie_header
+        logger.info("登录获取 cookie：%s=%s", cookie_env, cookie_header)
 
-    logger.info("login done, updated env keys: %s", ",".join(updates.keys()))
+    logger.info("登录完成，更新环境变量：%s", ",".join(updates.keys()))
     return updates
