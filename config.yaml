@@ -111,32 +111,51 @@ processing:
 
 login_api:
   # 是否启用自动登录刷新 cookie/token
-  enabled: false
+  enabled: true
 
   # 验证码接口配置
   captcha:
-    url: "https://bgwlgl.bbwport.com/api/auth/captcha"
+    # 若验证码接口不可用，可设置 enabled=false，并通过环境变量提供验证码
+    enabled: true
+    value_env_key: "CAPTCHA_VALUE"
+    key_env_key: "CAPTCHA_KEY"
+    rs_id_env_key: "LOGIN_RS_ID"
+    url: "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/random"
     method: "GET"
     timeout: 10
     headers:
       accept: "application/json, text/plain, */*"
+      origin: "https://bgwlgl.bbwport.com"
+      referer: "https://bgwlgl.bbwport.com/"
       user-agent: "Mozilla/5.0"
+    params:
+      show: "${CAPTCHA_SHOW}"
+    # 如果偶发 409，可设置重试次数与间隔（秒）
+    retries: 3
+    retry_sleep: 1
     # response_type: "binary" | "base64_json"
     response_type: "base64_json"
     # base64_json 模式时需要指定字段
     image_field: "randomCodeImage"
     # 如果返回里有 captcha key，可在这里声明
     key_field: "captchaKey"
+    # 如果返回里有 _rs_id，可在这里声明
+    rs_id_field: "_rs_id"
 
   # 登录接口配置
   login:
-    url: "https://bgwlgl.bbwport.com/api/auth/login"
+    # 登录地址（根据浏览器 Network 捕获）
+    url: "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do"
     method: "POST"
     timeout: 15
     headers:
       accept: "application/json, text/plain, */*"
       content-type: "application/json;charset=UTF-8"
       user-agent: "Mozilla/5.0"
+    # 登录接口的 query 参数（按 Network 里的 Request URL 填写）
+    params_template: {}
+    rs_id_param: "_rs_id"
+    random_code_param: "_randomCode_"
     payload_template:
       username: "${LOGIN_USERNAME}"
       password: "${LOGIN_PASSWORD}"
