@@ -1,7 +1,6 @@
 requests
 pandas
 openpyxl
-PyYAML
 python-dotenv
 pillow
 ddddocr

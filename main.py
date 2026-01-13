@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-import yaml
 from dotenv import load_dotenv
 
 from fetcher import (
@@ -21,18 +20,133 @@ logger = logging.getLogger(__name__)
 # 统一日志格式，便于排查流程
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-
-def load_config(path: str) -> Dict[str, Any]:
-    """读取 YAML 配置文件并解析为 dict。
-
-    参数:
-        path: 配置文件路径（如 config.yaml）。
-
-    返回:
-        YAML 解析后的字典对象。
-    """
-    with open(path, "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle)
+CONFIG: Dict[str, Any] = {
+    "list_api": {
+        "url": "https://bgwlgl.bbwport.com/api/train-sea-union/real/train/listRealTrainInfo.do",
+        "method": "POST",
+        "timeout": 30,
+        "retries": 10,
+        "retry_backoff_base": 1.5,
+        "sleep_between_pages": 0.2,
+        "headers": {
+            "accept": "application/json, text/plain, */*",
+            "content-type": "application/json;charset=UTF-8",
+            "origin": "https://bgwlgl.bbwport.com",
+            "referer": "https://bgwlgl.bbwport.com/",
+            "user-agent": "Mozilla/5.0",
+            "auth_token": "${AUTH_TOKEN}",
+            "cookie": "${COOKIE}",
+        },
+        "payload_template": {
+            "pageNumber": 0,
+            "pageSize": 200,
+            "params": {
+                "realTrainCode": "",
+                "startStation": "",
+                "endStation": "",
+                "lineCode": "",
+                "lineName": "",
+                "upOrDown": "上行",
+                "departureDateStart": "2026-01-12 00:00:00",
+                "departureDateEnd": None,
+                "loadingTimeStart": None,
+                "loadingTimeEnd": None,
+            },
+            "sorts": [],
+        },
+        "pagination": {
+            "page_param": "pageNumber",
+            "page_size_param": "pageSize",
+            "page_size": 200,
+            "start_page": 0,
+            "one_based": False,
+            "max_pages": 10000,
+            "rows_field": "rows",
+            "total_field": "total",
+            "total_pages_field": "totalPage",
+        },
+    },
+    "export_api": {
+        "url": "https://bgwlgl.bbwport.com/api/train-sea-union/bookingInfo/exportLoadedBox.do",
+        "method": "POST",
+        "timeout": 60,
+        "retries": 3,
+        "flag": "单表",
+        "headers": {
+            "accept": "application/json, text/plain, */*",
+            "content-type": "application/json;charset=UTF-8",
+            "origin": "https://bgwlgl.bbwport.com",
+            "referer": "https://bgwlgl.bbwport.com/",
+            "user-agent": "Mozilla/5.0",
+            "auth_token": "${AUTH_TOKEN}",
+            "cookie": "${COOKIE}",
+        },
+    },
+    "run": {
+        "target_day": "2026-01-12",
+        "output_dir": "data",
+        "output_filename_template": "export_loaded_box_{day}.xlsx",
+        "save_sample_rows": True,
+        "sample_rows_path": "sample_rows.json",
+    },
+    "processing": {
+        "enabled": True,
+        "consigner_field": "委托客户",
+        "consigner_env_key": "CONSIGNOR_NAME",
+        "province_field": "省份",
+        "output_dir": "data/province",
+        "sheet_name": "data",
+        "output_template": "{province}.xlsx",
+    },
+    "login_api": {
+        "enabled": True,
+        "captcha": {
+            "enabled": True,
+            "value_env_key": "CAPTCHA_VALUE",
+            "key_env_key": "CAPTCHA_KEY",
+            "rs_id_env_key": "LOGIN_RS_ID",
+            "url": "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/random",
+            "method": "GET",
+            "timeout": 10,
+            "headers": {
+                "accept": "application/json, text/plain, */*",
+                "origin": "https://bgwlgl.bbwport.com",
+                "referer": "https://bgwlgl.bbwport.com/",
+                "user-agent": "Mozilla/5.0",
+            },
+            "params": {"show": "${CAPTCHA_SHOW}"},
+            "save_path": "data/captcha.png",
+            "retries": 3,
+            "retry_sleep": 1,
+            "response_type": "base64_json",
+            "image_field": "randomCodeImage",
+            "key_field": "captchaKey",
+            "rs_id_field": "_rs_id",
+        },
+        "login": {
+            "url": "https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do",
+            "method": "POST",
+            "timeout": 15,
+            "headers": {
+                "accept": "application/json, text/plain, */*",
+                "content-type": "application/json;charset=UTF-8",
+                "user-agent": "Mozilla/5.0",
+            },
+            "params_template": {},
+            "rs_id_param": "_rs_id",
+            "random_code_param": "_randomCode_",
+            "payload_template": {
+                "username": "${LOGIN_USERNAME}",
+                "password": "${LOGIN_PASSWORD}",
+            },
+            "captcha_field": "captcha",
+            "captcha_key_field": "captchaKey",
+        },
+        "token_json_path": ["data", "token"],
+        "token_env": "AUTH_TOKEN",
+        "cookie_env": "COOKIE",
+    },
+}
 
 
 def _missing_env_vars(headers: Dict[str, Any]) -> Dict[str, str]:
@@ -64,8 +178,7 @@ def main() -> None:
     """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
     # 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
     load_dotenv()
-    # 读取配置文件
-    config = load_config("config.yaml")
+    config = CONFIG
     # 先登录，自动刷新 cookie/token（如果启用）
     login_and_refresh_auth(config)
 
