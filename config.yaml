@@ -120,7 +120,12 @@ login_api:
     timeout: 10
     headers:
       accept: "application/json, text/plain, */*"
+      origin: "https://bgwlgl.bbwport.com"
+      referer: "https://bgwlgl.bbwport.com/"
       user-agent: "Mozilla/5.0"
+    # 如果偶发 409，可设置重试次数与间隔（秒）
+    retries: 3
+    retry_sleep: 1
     # response_type: "binary" | "base64_json"
     response_type: "base64_json"
     # base64_json 模式时需要指定字段
