@@ -178,10 +178,11 @@ def main() -> None:
     # 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
     load_dotenv()
     config = CONFIG
-    # 先登录，获取 cookie 后注入环境变量供后续请求使用
-    cookie_pairs, _session = login.get_cookie()
-    cookie_header = "; ".join(f"{key}={value}" for key, value in cookie_pairs.items() if value)
-    os.environ["COOKIE"] = cookie_header
+    login_cfg = config.get("login_api", {})
+    if login_cfg.get("enabled", False):
+        auth_result = login_and_refresh_auth(config)
+        cookie_header = auth_result.cookie_header
+        os.environ[login_cfg.get("cookie_env", "COOKIE")] = cookie_header
 
     _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
     _validate_auth_headers("export_api", config["export_api"].get("headers", {}))
