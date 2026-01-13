@@ -35,6 +35,31 @@ def load_config(path: str) -> Dict[str, Any]:
         return yaml.safe_load(handle)
 
 
+def _missing_env_vars(headers: Dict[str, Any]) -> Dict[str, str]:
+    missing: Dict[str, str] = {}
+    for key, value in headers.items():
+        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+            env_key = value[2:-1]
+            if not os.getenv(env_key):
+                missing[key] = env_key
+    return missing
+
+
+def _validate_auth_headers(section: str, headers: Dict[str, Any]) -> None:
+    auth_keys = [key for key in ("auth_token", "cookie") if key in headers]
+    if not auth_keys:
+        return
+
+    missing_envs = _missing_env_vars(headers)
+    empty_auth = [key for key in auth_keys if key in missing_envs]
+    if empty_auth and len(empty_auth) == len(auth_keys):
+        missing_vars = ", ".join(sorted({missing_envs[key] for key in empty_auth}))
+        raise RuntimeError(
+            f"{section} 鉴权信息为空，无法访问接口。请设置环境变量 {missing_vars}，"
+            "或启用 login_api 自动登录后重试。"
+        )
+
+
 def main() -> None:
     """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
     # 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
@@ -43,6 +68,9 @@ def main() -> None:
     config = load_config("config.yaml")
     # 先登录，自动刷新 cookie/token（如果启用）
     login_and_refresh_auth(config)
+
+    _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
+    _validate_auth_headers("export_api", config["export_api"].get("headers", {}))
 
     # 列表接口配置
     list_cfg = config["list_api"]
