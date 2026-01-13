@@ -116,7 +116,8 @@ login_api:
   # 验证码接口配置
   captcha:
     # 若验证码接口不可用，可设置 enabled=false，并通过环境变量提供验证码
-    enabled: false
+    enabled: true
+
     value_env_key: "CAPTCHA_VALUE"
     key_env_key: "CAPTCHA_KEY"
     rs_id_env_key: "LOGIN_RS_ID"
