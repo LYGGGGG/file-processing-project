@@ -80,6 +80,15 @@ def fetch_all_real_train_info(
         env_token = os.getenv(auth_link_flow.get("auth_token_env", "AUTH_TOKEN"))
         return header_token or cookie_token or env_token
 
+    def _normalize_auth_header() -> None:
+        token = _get_auth_token(headers.get("cookie", "") or "")
+        current = headers.get("auth_token")
+        if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
+            headers.pop("auth_token", None)
+            current = None
+        if token and not current:
+            headers["auth_token"] = token
+
     def _apply_cookies_to_session() -> None:
         cookie_header = headers.get("cookie")
         if not cookie_header:
@@ -165,6 +174,7 @@ def fetch_all_real_train_info(
         )
 
     _apply_cookies_to_session()
+    _normalize_auth_header()
 
     def _post_with_retry(data: Dict[str, Any]) -> Dict[str, Any]:
         """内部函数：负责带重试的 POST 请求。"""
@@ -308,6 +318,30 @@ def download_export_loaded_box_xlsx(
     session = requests.Session()
     # 注入环境变量（避免把 token 写死在代码里）
     headers = deep_inject_env(headers)
+
+    def _parse_cookie_header(cookie_header: str) -> Dict[str, str]:
+        cookies: Dict[str, str] = {}
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            cookies[key.strip()] = value.strip()
+        return cookies
+
+    def _normalize_auth_header() -> None:
+        current = headers.get("auth_token")
+        if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
+            headers.pop("auth_token", None)
+            current = None
+        if current:
+            return
+        cookie_token = _parse_cookie_header(headers.get("cookie", "") or "").get("AUTH_TOKEN")
+        env_token = os.getenv("AUTH_TOKEN")
+        if cookie_token or env_token:
+            headers["auth_token"] = cookie_token or env_token
+
+    _normalize_auth_header()
 
     # 逗号拼接 codes，符合接口参数要求
     payload = {"realTrainCode": ",".join(real_train_codes), "flag": flag}
