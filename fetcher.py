@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # core: fetch listRealTrainInfo
 # -------------------------
 
-def fetch_all_real_train_info(
+def fetch_train_info(
     url: str,
     headers: Dict[str, str],
     payload_template: Dict[str, Any],
@@ -256,11 +256,43 @@ def fetch_all_real_train_info(
     return all_rows
 
 
+def fetch_all_real_train_info(
+    url: str,
+    headers: Dict[str, str],
+    payload_template: Dict[str, Any],
+    *,
+    page_number_field: str = "pageNumber",
+    page_size_field: str = "pageSize",
+    rows_field: str = "rows",
+    total_field: str = "total",
+    start_page_number: int = 0,
+    retries: int = 3,
+    timeout: int = 30,
+    sleep_between_pages: float = 0.2,
+    auth_link_flow: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """兼容旧命名：转调到 fetch_train_info。"""
+    return fetch_train_info(
+        url,
+        headers,
+        payload_template,
+        page_number_field=page_number_field,
+        page_size_field=page_size_field,
+        rows_field=rows_field,
+        total_field=total_field,
+        start_page_number=start_page_number,
+        retries=retries,
+        timeout=timeout,
+        sleep_between_pages=sleep_between_pages,
+        auth_link_flow=auth_link_flow,
+    )
+
+
 # -------------------------
 # filter: pick codes for a day
 # -------------------------
 
-def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
+def select_train_codes_by_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
     规则：departure_date 的日期部分 == day
@@ -296,7 +328,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
 # download: exportLoadedBox.do (xlsx binary)
 # -------------------------
 
-def download_export_loaded_box_xlsx(
+def download_loaded_box_excel(
     *,
     url: str,
     headers: Dict[str, str],
@@ -383,3 +415,30 @@ def download_export_loaded_box_xlsx(
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("导出下载失败，但未捕获到异常")
+
+
+def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
+    """兼容旧命名：转调到 select_train_codes_by_day。"""
+    return select_train_codes_by_day(rows, day)
+
+
+def download_export_loaded_box_xlsx(
+    *,
+    url: str,
+    headers: Dict[str, str],
+    real_train_codes: List[str],
+    out_path: str,
+    flag: str = "单表",
+    retries: int = 3,
+    timeout: int = 60,
+) -> str:
+    """兼容旧命名：转调到 download_loaded_box_excel。"""
+    return download_loaded_box_excel(
+        url=url,
+        headers=headers,
+        real_train_codes=real_train_codes,
+        out_path=out_path,
+        flag=flag,
+        retries=retries,
+        timeout=timeout,
+    )
