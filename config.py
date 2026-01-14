@@ -86,7 +86,7 @@ CONFIG: Dict[str, Any] = {
         "consigner_field": "委托客户",
         "consigner_env_key": "CONSIGNOR_NAME",
         "actual_booker_field": "实际订舱客户",
-        "actual_booker_exclude": "陆海新通道",
+        "actual_booker_exclude": "EXCLUDE_CONSIGNOR_NAME",
         "output_dir": "data/actual_booker",
         "sheet_name": "data",
         "output_template": "{actual_booker}.xlsx",

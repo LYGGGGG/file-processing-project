@@ -80,6 +80,10 @@ def _apply_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
     # 如果未设置出发日期，则补齐当天 00:00:00
     if not params.get("departureDateStart"):
         params["departureDateStart"] = f"{target_day} 00:00:00"
+    logger.info(
+        "列表查询使用 departureDateStart=%s",
+        params.get("departureDateStart"),
+    )
     # 避免配置中残留结束日期造成筛选冲突
     params.pop("departureDateEnd", None)
     payload["params"] = params
