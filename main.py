@@ -52,7 +52,7 @@ CONFIG: Dict[str, Any] = {
                 "lineCode": "",
                 "lineName": "",
                 "upOrDown": "上行",
-                "departureDateStart": "2026-01-13 00:00:00",
+                "departureDateStart": "2026-01-014 00:00:00",
                 "departureDateEnd": "",
                 "loadingTimeStart": "",
                 "loadingTimeEnd": "",
@@ -88,7 +88,7 @@ CONFIG: Dict[str, Any] = {
         },
     },
     "run": {
-        "target_day": "2026-01-13",
+        "target_day": "2026-01-14",
         "output_dir": "data",
         "output_filename_template": "export_loaded_box_{day}.xlsx",
         "save_sample_rows": False,
