@@ -78,8 +78,6 @@ CONFIG: Dict[str, Any] = {
         "target_day": "",
         "output_dir": "data",
         "output_filename_template": "export_loaded_box_{day}.xlsx",
-        "save_sample_rows": False,
-        "sample_rows_path": "sample_rows.json",
     },
     # 处理配置：用于拆分 Excel 并按实际订舱客户输出
     "processing": {
