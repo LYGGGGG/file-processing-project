@@ -19,29 +19,35 @@ from utils import build_cookie_header
 
 from config import CONFIG
 
-# 主入口日志
+# 主入口日志：统一使用模块名，便于在多模块日志中定位来源
 logger = logging.getLogger(__name__)
-# 统一日志格式，便于排查流程
+# 统一日志格式，便于排查流程与线上问题
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 
 def _missing_env_vars(headers: Dict[str, Any]) -> Dict[str, str]:
+    """扫描 headers 中形如 ${ENV} 的占位符，返回缺失环境变量映射。"""
     missing: Dict[str, str] = {}
     for key, value in headers.items():
+        # 仅处理字符串占位符，其它类型保持原样
         if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
             env_key = value[2:-1]
+            # 未找到环境变量时记录该 key
             if not os.getenv(env_key):
                 missing[key] = env_key
     return missing
 
 
 def _validate_auth_headers(section: str, headers: Dict[str, Any]) -> None:
+    """校验鉴权配置，避免 auth_token/cookie 都为空时继续请求接口。"""
+    # 只在 headers 中存在鉴权相关 key 时才进行校验
     auth_keys = [key for key in ("auth_token", "cookie") if key in headers]
     if not auth_keys:
         return
 
     missing_envs = _missing_env_vars(headers)
+    # 如果 auth_token/cookie 都是空占位符，则明确报错提示
     empty_auth = [key for key in auth_keys if key in missing_envs]
     if empty_auth and len(empty_auth) == len(auth_keys):
         missing_vars = ", ".join(sorted({missing_envs[key] for key in empty_auth}))
@@ -52,8 +58,11 @@ def _validate_auth_headers(section: str, headers: Dict[str, Any]) -> None:
 
 
 def _sync_auth_token_from_cookie(cookie_header: str, env_key: str = "AUTH_TOKEN") -> None:
+    """当环境变量缺失 AUTH_TOKEN 时，尝试从 cookie 中同步写入。"""
+    # 若 cookie 不存在或环境变量已存在，则无需处理
     if not cookie_header or os.getenv(env_key):
         return
+    # 解析 cookie，寻找 AUTH_TOKEN
     for part in cookie_header.split(";"):
         part = part.strip()
         if not part or "=" not in part:
@@ -65,18 +74,23 @@ def _sync_auth_token_from_cookie(cookie_header: str, env_key: str = "AUTH_TOKEN"
 
 
 def _resolve_target_day(run_cfg: Dict[str, Any]) -> str:
+    """读取或生成目标日期，并写回 run_cfg 以便后续流程复用。"""
     target_day = run_cfg.get("target_day", "")
     if not target_day:
+        # 默认取当天，格式与接口要求一致
         target_day = date.today().strftime("%Y-%m-%d")
         run_cfg["target_day"] = target_day
     return target_day
 
 
 def _sync_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
+    """将目标日期同步到列表请求 payload，确保仅查询当天数据。"""
     payload = list_cfg.get("payload_template", {})
     params = payload.get("params", {})
+    # 如果未设置出发日期，则补齐当天 00:00:00
     if not params.get("departureDateStart"):
         params["departureDateStart"] = f"{target_day} 00:00:00"
+    # 避免配置中残留结束日期造成筛选冲突
     params.pop("departureDateEnd", None)
     payload["params"] = params
     list_cfg["payload_template"] = payload
@@ -89,6 +103,7 @@ def main() -> None:
     config = CONFIG
     login_cfg = config.get("login_api", {})
     if login_cfg.get("enabled", False):
+        # 自动登录获取 cookie（含 AUTH_TOKEN）
         cookies = login.login()
         if not cookies:
             raise RuntimeError("登录失败，未获取到 Cookie 信息。")
@@ -99,9 +114,11 @@ def main() -> None:
         os.environ[login_cfg.get("cookie_env", "COOKIE")] = cookie_header
         _sync_auth_token_from_cookie(cookie_header, env_key=login_cfg.get("token_env", "AUTH_TOKEN"))
     else:
+        # 仅使用已有 cookie 时，也尝试补齐 AUTH_TOKEN
         cookie_env_key = login_cfg.get("cookie_env", "COOKIE")
         _sync_auth_token_from_cookie(os.getenv(cookie_env_key, ""))
 
+    # 在进入请求前确认鉴权信息齐全
     _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
     _validate_auth_headers("export_api", config["export_api"].get("headers", {}))
 
@@ -162,9 +179,9 @@ def main() -> None:
     logger.info("已保存 Excel => %s", saved)
 
     # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
-
     processing_cfg = config.get("processing", {})
     if processing_cfg.get("enabled", True):
+        # 从环境变量读取委托客户名称，便于外部配置
         consigner_env_key = processing_cfg.get("consigner_env_key", "")
         consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
         outputs = split_excel_by_actual_booker(
