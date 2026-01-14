@@ -30,7 +30,7 @@ def _sanitize_filename(name: str) -> str:
     )
 
 
-def split_excel_by_actual_booker(
+def split_excel_by_booker(
     *,
     input_path: str,
     output_dir: str,

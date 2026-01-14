@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 
 def deep_inject_env(data: Any) -> Any:
@@ -21,6 +21,41 @@ def deep_inject_env(data: Any) -> Any:
     return data
 
 
+def parse_cookie_header(cookie_header: str) -> Dict[str, str]:
+    """解析 Cookie header 为字典。"""
+    cookies: Dict[str, str] = {}
+    for part in cookie_header.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        cookies[key.strip()] = value.strip()
+    return cookies
+
+
+def normalize_auth_headers(
+    headers: Dict[str, str],
+    *,
+    cookie_key: str = "cookie",
+    auth_key: str = "auth_token",
+    env_key: str = "AUTH_TOKEN",
+) -> Optional[str]:
+    """确保 headers 中写入 auth_token，并返回最终 token。"""
+    current = headers.get(auth_key)
+    if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
+        headers.pop(auth_key, None)
+        current = None
+    if current:
+        return current
+    cookie_header = headers.get(cookie_key, "") or ""
+    cookie_token = parse_cookie_header(cookie_header).get("AUTH_TOKEN")
+    env_token = os.getenv(env_key)
+    token = cookie_token or env_token
+    if token:
+        headers[auth_key] = token
+    return token
+
+
 def build_cookie_header(*, cookie_pairs: Dict[str, str], preferred_keys: Iterable[str]) -> str:
     """构建 Cookie header 字符串，优先输出指定 key，随后补齐其它 cookie。"""
     ordered = []
@@ -35,14 +70,3 @@ def build_cookie_header(*, cookie_pairs: Dict[str, str], preferred_keys: Iterabl
             continue
         ordered.append(f"{key}={value}")
     return "; ".join(ordered)
-
-
-def get_nested_value(payload: Dict[str, Any], path: Iterable[str]) -> Any:
-    """安全读取嵌套字典值，路径不存在时返回 None。"""
-    current: Any = payload
-    for key in path:
-        if isinstance(current, dict) and key in current:
-            current = current[key]
-        else:
-            return None
-    return current

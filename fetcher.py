@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from utils import deep_inject_env
+from utils import deep_inject_env, normalize_auth_headers, parse_cookie_header
 
 
 # 模块级 logger：供本模块内部统一输出日志
@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # core: fetch listRealTrainInfo
 # -------------------------
 
-def fetch_all_real_train_info(
+def fetch_train_rows(
     url: str,
     headers: Dict[str, str],
     payload_template: Dict[str, Any],
@@ -66,20 +66,9 @@ def fetch_all_real_train_info(
     # 标记是否已执行过 auth-link 流程，避免重复执行
     auth_link_state = {"used": False}
 
-    def _parse_cookie_header(cookie_header: str) -> Dict[str, str]:
-        """解析 Cookie header 为字典，便于读取 AUTH_TOKEN 等值。"""
-        cookies: Dict[str, str] = {}
-        for part in cookie_header.split(";"):
-            part = part.strip()
-            if not part or "=" not in part:
-                continue
-            key, value = part.split("=", 1)
-            cookies[key.strip()] = value.strip()
-        return cookies
-
     def _get_auth_token(cookie_header: str) -> Optional[str]:
         """从 header/cookie/env 中按优先级获取 auth_token。"""
-        cookie_token = _parse_cookie_header(cookie_header).get("AUTH_TOKEN")
+        cookie_token = parse_cookie_header(cookie_header).get("AUTH_TOKEN")
         header_token = headers.get("auth_token")
         env_token = os.getenv(auth_link_flow.get("auth_token_env", "AUTH_TOKEN"))
         return header_token or cookie_token or env_token
@@ -87,20 +76,18 @@ def fetch_all_real_train_info(
     def _normalize_auth_header() -> None:
         """将 AUTH_TOKEN 填充到 headers，避免接口返回 401。"""
         token = _get_auth_token(headers.get("cookie", "") or "")
-        current = headers.get("auth_token")
-        # 若 headers 中仍为占位符，则移除以便写入真实 token
-        if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
-            headers.pop("auth_token", None)
-            current = None
-        if token and not current:
-            headers["auth_token"] = token
+        if token:
+            normalize_auth_headers(
+                headers,
+                env_key=auth_link_flow.get("auth_token_env", "AUTH_TOKEN"),
+            )
 
     def _apply_cookies_to_session() -> None:
         """将 Cookie header 写入 Session，确保后续请求携带 cookie。"""
         cookie_header = headers.get("cookie")
         if not cookie_header:
             return
-        parsed = _parse_cookie_header(cookie_header)
+        parsed = parse_cookie_header(cookie_header)
         if parsed:
             session.cookies.update(parsed)
 
@@ -260,7 +247,7 @@ def fetch_all_real_train_info(
 # filter: pick codes for a day
 # -------------------------
 
-def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
+def filter_train_codes_by_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
     规则：departure_date 的日期部分 == day
@@ -296,7 +283,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
 # download: exportLoadedBox.do (xlsx binary)
 # -------------------------
 
-def download_export_loaded_box_xlsx(
+def download_export_excel(
     *,
     url: str,
     headers: Dict[str, str],
@@ -330,29 +317,9 @@ def download_export_loaded_box_xlsx(
     # 注入环境变量（避免把 token 写死在代码里）
     headers = deep_inject_env(headers)
 
-    def _parse_cookie_header(cookie_header: str) -> Dict[str, str]:
-        """解析 Cookie header，供 auth_token 兜底使用。"""
-        cookies: Dict[str, str] = {}
-        for part in cookie_header.split(";"):
-            part = part.strip()
-            if not part or "=" not in part:
-                continue
-            key, value = part.split("=", 1)
-            cookies[key.strip()] = value.strip()
-        return cookies
-
     def _normalize_auth_header() -> None:
         """确保 headers 中存在 auth_token，避免接口拒绝。"""
-        current = headers.get("auth_token")
-        if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
-            headers.pop("auth_token", None)
-            current = None
-        if current:
-            return
-        cookie_token = _parse_cookie_header(headers.get("cookie", "") or "").get("AUTH_TOKEN")
-        env_token = os.getenv("AUTH_TOKEN")
-        if cookie_token or env_token:
-            headers["auth_token"] = cookie_token or env_token
+        normalize_auth_headers(headers)
 
     _normalize_auth_header()
 
