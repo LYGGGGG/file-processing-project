@@ -194,17 +194,3 @@ def login():
         print(f"GWL-EXEC-PROD验证失败: {e}")
         return None
 
-
-def save_api_data() -> Tuple[str, str, Optional[Path]]:
-    """兼容旧命名：转调到 fetch_captcha。"""
-    return fetch_captcha()
-
-
-def get_cookie():
-    """兼容旧命名：转调到 login_with_captcha。"""
-    return login_with_captcha()
-
-
-def verify_cookies():
-    """兼容旧命名：转调到 build_login_cookies。"""
-    return build_login_cookies()
