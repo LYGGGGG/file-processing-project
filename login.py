@@ -49,7 +49,7 @@ def get_captcha_data(*, force_refresh: bool = False) -> Tuple[str, str, Optional
         if cached:
             return cached
     # 强制刷新或缓存失效时重新请求验证码
-    rs_id, code, path = save_api_data()
+    rs_id, code, path = fetch_captcha()
     _CAPTCHA_CACHE.clear()
     _CAPTCHA_CACHE.update(
         {
@@ -62,7 +62,7 @@ def get_captcha_data(*, force_refresh: bool = False) -> Tuple[str, str, Optional
     return rs_id, code, path
 
 
-def save_api_data() -> Tuple[str, str, Optional[Path]]:
+def fetch_captcha() -> Tuple[str, str, Optional[Path]]:
     """获取验证码信息并保存图片，返回(rs_id, 识别码, 保存路径)。"""
     show_value = int(time.time() * 1000)
     url = f"https://bgwlgl.bbwport.com/api/bgwl-cloud-center/random?show={show_value}"
@@ -127,22 +127,22 @@ def create_output_method(method: str) -> Callable[[str], str]:
 
 
 # 获取cookie
-def get_cookie():
+def login_with_captcha():
     """请求验证码并执行登录，返回登录响应与 session。"""
-    temp = get_captcha_data()
-    rs_id = temp[0]
-    code = temp[1]
+    captcha = get_captcha_data()
+    rs_id = captcha[0]
+    code = captcha[1]
     logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
     md5_hex = create_output_method('hexdigest')
     # 登录 payload 使用 MD5 加密后的固定密码示例
-    dataList = {
+    payload = {
         "rsid": rs_id,
         "code": code,
         "password": md5_hex('abc1234.'),
         "username": "梁易高",
     }
 
-    dataList = json.dumps(dataList)
+    payload_json = json.dumps(payload)
     headers = {
         "accept": "application/json, text/plain, */*",
         "content-type": "application/json;charset=UTF-8",
@@ -151,27 +151,27 @@ def get_cookie():
     session = requests.Session()
     # 1. 首先执行登录 POST 请求
     url = f"https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do?_rs_id={rs_id}&_randomCode_={code}"
-    login_response = session.post(url, headers=headers, data=dataList)
+    login_response = session.post(url, headers=headers, data=payload_json)
     # print(login_response.json()['data'])
 
     return login_response, session
 
 
-def verify_cookies():
+def build_login_cookies():
     """校验登录响应中的 cookie 与 AUTH_TOKEN，返回可用 cookie 字典。"""
-    temp = get_cookie()
+    login_result = login_with_captcha()
 
     # 从登录响应中获取所有 cookies
-    cookies_list = temp[1].cookies.items()
+    cookies_list = login_result[1].cookies.items()
     # print("cookies_list:")
     # print(cookies_list)
 
     # 获取 AUTH_TOKEN
-    auth_token = temp[0].json()['data']
+    auth_token = login_result[0].json()['data']
     # print("AUTH_TOKEN:")
     # print(auth_token)
     # 确保从正确的 session 中获取 BGWL-EXEC-PROD
-    bgwl_exec_prod = temp[1].cookies.get('BGWL-EXEC-PROD')
+    bgwl_exec_prod = login_result[1].cookies.get('BGWL-EXEC-PROD')
     cookies = {
         'IGNORE-SESSION': '-',
         'AUTH_TOKEN': auth_token,
@@ -189,7 +189,8 @@ def verify_cookies():
 def login():
     """统一入口：获取 cookie，失败时返回 None。"""
     try:
-        return verify_cookies()
+        return build_login_cookies()
     except Exception as e:
         print(f"GWL-EXEC-PROD验证失败: {e}")
         return None
+

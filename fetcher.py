@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # core: fetch listRealTrainInfo
 # -------------------------
 
-def fetch_all_real_train_info(
+def fetch_train_info(
     url: str,
     headers: Dict[str, str],
     payload_template: Dict[str, Any],
@@ -260,7 +260,7 @@ def fetch_all_real_train_info(
 # filter: pick codes for a day
 # -------------------------
 
-def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
+def select_train_codes_by_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
     规则：departure_date 的日期部分 == day
@@ -296,7 +296,7 @@ def filter_codes_for_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
 # download: exportLoadedBox.do (xlsx binary)
 # -------------------------
 
-def download_export_loaded_box_xlsx(
+def download_loaded_box_excel(
     *,
     url: str,
     headers: Dict[str, str],
@@ -383,3 +383,4 @@ def download_export_loaded_box_xlsx(
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("导出下载失败，但未捕获到异常")
+
