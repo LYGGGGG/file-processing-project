@@ -52,7 +52,7 @@ CONFIG: Dict[str, Any] = {
                 "lineCode": "",
                 "lineName": "",
                 "upOrDown": "上行",
-                "departureDateStart": "2026-01-13 00:46:20",
+                "departureDateStart": "2026-01-13 00:00:00",
                 "departureDateEnd": "",
                 "loadingTimeStart": "",
                 "loadingTimeEnd": "",
