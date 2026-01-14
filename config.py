@@ -22,10 +22,6 @@ CONFIG: Dict[str, Any] = {
             "auth_token": "${AUTH_TOKEN}",
             "cookie": "${COOKIE}",
         },
-        # 登录联动配置（预留开关）
-        "auth_link_flow": {
-            "enabled": False,
-        },
         # 列表查询参数模板（分页参数 + 业务过滤条件）
         "payload_template": {
             "pageNumber": 0,

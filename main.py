@@ -128,7 +128,6 @@ def _fetch_list_rows(list_api: Dict[str, Any], pagination: Dict[str, Any]) -> Li
         retries=list_api.get("retries", 3),
         timeout=list_api.get("timeout", 30),
         sleep_between_pages=list_api.get("sleep_between_pages", 0.2),
-        auth_link_flow=list_api.get("auth_link_flow"),
     )
 
 def _download_export_excel(export_api: Dict[str, Any], out_path: str, train_codes: List[str]) -> str:

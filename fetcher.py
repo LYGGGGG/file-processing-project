@@ -1,6 +1,5 @@
 import logging
 import math
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,7 +32,6 @@ def fetch_train_rows(
     retries: int = 3,
     timeout: int = 30,
     sleep_between_pages: float = 0.2,
-    auth_link_flow: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     拉取 listRealTrainInfo.do 全量数据：
@@ -61,26 +59,9 @@ def fetch_train_rows(
     # 将 headers / payload 中的 ${ENV} 占位符替换为环境变量
     headers = deep_inject_env(headers)
     base_payload = deep_inject_env(payload_template)
-    # auth_link_flow 中也支持 ${ENV} 注入，便于开关与配置外置化
-    auth_link_flow = deep_inject_env(auth_link_flow or {})
-    # 标记是否已执行过 auth-link 流程，避免重复执行
-    auth_link_state = {"used": False}
-
-    def _get_auth_token(cookie_header: str) -> Optional[str]:
-        """从 header/cookie/env 中按优先级获取 auth_token。"""
-        cookie_token = parse_cookie_header(cookie_header).get("AUTH_TOKEN")
-        header_token = headers.get("auth_token")
-        env_token = os.getenv(auth_link_flow.get("auth_token_env", "AUTH_TOKEN"))
-        return header_token or cookie_token or env_token
-
     def _normalize_auth_header() -> None:
         """将 AUTH_TOKEN 填充到 headers，避免接口返回 401。"""
-        token = _get_auth_token(headers.get("cookie", "") or "")
-        if token:
-            normalize_auth_headers(
-                headers,
-                env_key=auth_link_flow.get("auth_token_env", "AUTH_TOKEN"),
-            )
+        normalize_auth_headers(headers)
 
     def _apply_cookies_to_session() -> None:
         """将 Cookie header 写入 Session，确保后续请求携带 cookie。"""
@@ -90,85 +71,6 @@ def fetch_train_rows(
         parsed = parse_cookie_header(cookie_header)
         if parsed:
             session.cookies.update(parsed)
-
-    def _run_auth_link_flow() -> None:
-        """执行 auth-link 流程以刷新鉴权，主要用于 401 重试场景。"""
-        if not auth_link_flow.get("enabled", False):
-            return
-        cookie_header = headers.get("cookie", "")
-        auth_token = _get_auth_token(cookie_header)
-        if not auth_token:
-            logger.warning("auth-link 流程缺少 AUTH_TOKEN，跳过鉴权刷新。")
-            return
-
-        transfer_url = auth_link_flow.get(
-            "transfer_url",
-            "https://bgwlgl.bbwport.com/api/auth/transfer",
-        )
-        transfer_headers = auth_link_flow.get(
-            "transfer_headers",
-            {
-                "accept": "application/json, text/plain, */*",
-                "accept-language": "zh-CN,zh;q=0.9",
-                "auth_token": auth_token,
-                "content-type": "application/x-www-form-urlencoded",
-                "origin": "https://bgwlgl.bbwport.com",
-                "priority": "u=1, i",
-                "referer": "https://bgwlgl.bbwport.com/",
-                "user-agent": "Mozilla/5.0",
-            },
-        )
-        transfer_headers = dict(transfer_headers)
-        transfer_headers["auth_token"] = auth_token
-        verify_ssl = auth_link_flow.get("verify_ssl", True)
-
-        # 第一步：transfer 接口获取 auth-key-link
-        logger.info("auth-link transfer 请求 URL：%s", transfer_url)
-        transfer_resp = session.post(
-            transfer_url,
-            headers=transfer_headers,
-            timeout=timeout,
-            verify=verify_ssl,
-        )
-        transfer_resp.raise_for_status()
-        transfer_data = transfer_resp.json()
-        auth_key_link = transfer_data.get("value")
-        if not auth_key_link:
-            logger.warning("auth-link transfer 未返回 value 字段，跳过后续刷新。")
-            return
-
-        portal_url = auth_link_flow.get("portal_url", "https://bgwlgl.bbwport.com:6443/")
-        portal_headers = auth_link_flow.get(
-            "portal_headers",
-            {
-                "Host": "bgwlgl.bbwport.com:6443",
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            },
-        )
-        portal_headers = dict(portal_headers)
-
-        portal_request_url = f"{portal_url}?auth-key-link={auth_key_link}"
-        logger.info("auth-link portal URL：%s", portal_request_url)
-        session.get(
-            portal_request_url,
-            headers=portal_headers,
-            timeout=timeout,
-            verify=verify_ssl,
-        )
-
-        portal_headers["Referer"] = portal_request_url
-        me_url = auth_link_flow.get("me_url", "https://bgwlgl.bbwport.com:6443/me.json")
-        timestamp = int(time.time() * 1000)
-        me_request_url = f"{me_url}?_d={timestamp}&auth-key-link={auth_key_link}"
-        # 第二步：访问 me.json 刷新会话
-        logger.info("auth-link me.json URL：%s", me_request_url)
-        session.get(
-            me_request_url,
-            headers=portal_headers,
-            timeout=timeout,
-            verify=verify_ssl,
-        )
 
     _apply_cookies_to_session()
     _normalize_auth_header()
@@ -180,16 +82,6 @@ def fetch_train_rows(
             try:
                 logger.info("列表接口请求 URL：%s", url)
                 resp = session.post(url, json=data, headers=headers, timeout=timeout)
-                if (
-                    resp.status_code == 401
-                    and not auth_link_state["used"]
-                    and auth_link_flow.get("enabled", False)
-                ):
-                    # 首次 401 时尝试 auth-link 刷新鉴权
-                    logger.warning("列表接口 401，尝试执行 auth-link 刷新流程。")
-                    _run_auth_link_flow()
-                    auth_link_state["used"] = True
-                    continue
                 resp.raise_for_status()
                 return resp.json()
             except Exception as exc:  # noqa: BLE001
