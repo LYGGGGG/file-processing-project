@@ -8,14 +8,10 @@ from typing import Any, Dict, List
 from dotenv import load_dotenv
 
 import login
-from fetcher import (
-    download_export_loaded_box_xlsx,
-    fetch_all_real_train_info,
-    filter_codes_for_day,
-)
+from fetcher import download_export_excel, fetch_train_rows, filter_train_codes_by_day
 
-from processor import split_excel_by_actual_booker
-from utils import build_cookie_header
+from processor import split_excel_by_booker
+from utils import build_cookie_header, parse_cookie_header
 
 from config import CONFIG
 
@@ -26,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 
 
-def _missing_env_vars(headers: Dict[str, Any]) -> Dict[str, str]:
+def _find_missing_env_vars(headers: Dict[str, Any]) -> Dict[str, str]:
     """扫描 headers 中形如 ${ENV} 的占位符，返回缺失环境变量映射。"""
     missing: Dict[str, str] = {}
     for key, value in headers.items():
@@ -39,14 +35,14 @@ def _missing_env_vars(headers: Dict[str, Any]) -> Dict[str, str]:
     return missing
 
 
-def _validate_auth_headers(section: str, headers: Dict[str, Any]) -> None:
+def _check_auth_headers(section: str, headers: Dict[str, Any]) -> None:
     """校验鉴权配置，避免 auth_token/cookie 都为空时继续请求接口。"""
     # 只在 headers 中存在鉴权相关 key 时才进行校验
     auth_keys = [key for key in ("auth_token", "cookie") if key in headers]
     if not auth_keys:
         return
 
-    missing_envs = _missing_env_vars(headers)
+    missing_envs = _find_missing_env_vars(headers)
     # 如果 auth_token/cookie 都是空占位符，则明确报错提示
     empty_auth = [key for key in auth_keys if key in missing_envs]
     if empty_auth and len(empty_auth) == len(auth_keys):
@@ -57,23 +53,18 @@ def _validate_auth_headers(section: str, headers: Dict[str, Any]) -> None:
         )
 
 
-def _sync_auth_token_from_cookie(cookie_header: str, env_key: str = "AUTH_TOKEN") -> None:
+def _sync_token_from_cookie(cookie_header: str, env_key: str = "AUTH_TOKEN") -> None:
     """当环境变量缺失 AUTH_TOKEN 时，尝试从 cookie 中同步写入。"""
     # 若 cookie 不存在或环境变量已存在，则无需处理
     if not cookie_header or os.getenv(env_key):
         return
     # 解析 cookie，寻找 AUTH_TOKEN
-    for part in cookie_header.split(";"):
-        part = part.strip()
-        if not part or "=" not in part:
-            continue
-        key, value = part.split("=", 1)
-        if key.strip() == "AUTH_TOKEN" and value.strip():
-            os.environ[env_key] = value.strip()
-            return
+    token = parse_cookie_header(cookie_header).get("AUTH_TOKEN", "").strip()
+    if token:
+        os.environ[env_key] = token
 
 
-def _resolve_target_day(run_cfg: Dict[str, Any]) -> str:
+def _ensure_target_day(run_cfg: Dict[str, Any]) -> str:
     """读取或生成目标日期，并写回 run_cfg 以便后续流程复用。"""
     target_day = run_cfg.get("target_day", "")
     if not target_day:
@@ -83,7 +74,7 @@ def _resolve_target_day(run_cfg: Dict[str, Any]) -> str:
     return target_day
 
 
-def _sync_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
+def _apply_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
     """将目标日期同步到列表请求 payload，确保仅查询当天数据。"""
     payload = list_cfg.get("payload_template", {})
     params = payload.get("params", {})
@@ -111,21 +102,21 @@ def _prepare_auth(config: Dict[str, Any]) -> None:
             preferred_keys=("AUTH_TOKEN", "BGWL-EXEC-PROD", "HWWAFSESID", "HWWAFSESTIME"),
         )
         os.environ[login_config.get("cookie_env", "COOKIE")] = cookie_header
-        _sync_auth_token_from_cookie(cookie_header, env_key=login_config.get("token_env", "AUTH_TOKEN"))
+        _sync_token_from_cookie(cookie_header, env_key=login_config.get("token_env", "AUTH_TOKEN"))
     else:
         # 2) 不登录时，仅使用已有 cookie，并尝试补齐 AUTH_TOKEN
         cookie_env_key = login_config.get("cookie_env", "COOKIE")
-        _sync_auth_token_from_cookie(os.getenv(cookie_env_key, ""))
+        _sync_token_from_cookie(os.getenv(cookie_env_key, ""))
 
     # 3) 在进入请求前确认鉴权信息齐全
-    _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
-    _validate_auth_headers("export_api", config["export_api"].get("headers", {}))
+    _check_auth_headers("list_api", config["list_api"].get("headers", {}))
+    _check_auth_headers("export_api", config["export_api"].get("headers", {}))
 
 
-def _fetch_rows(list_api: Dict[str, Any], pagination: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _fetch_list_rows(list_api: Dict[str, Any], pagination: Dict[str, Any]) -> List[Dict[str, Any]]:
     """执行列表查询并返回合并后的 rows。"""
     # 1) 拉取列表数据（分页合并后的所有 rows）
-    return fetch_all_real_train_info(
+    return fetch_train_rows(
         list_api["url"],
         list_api["headers"],
         list_api["payload_template"],
@@ -140,10 +131,10 @@ def _fetch_rows(list_api: Dict[str, Any], pagination: Dict[str, Any]) -> List[Di
         auth_link_flow=list_api.get("auth_link_flow"),
     )
 
-def _export_excel(export_api: Dict[str, Any], out_path: str, train_codes: List[str]) -> str:
+def _download_export_excel(export_api: Dict[str, Any], out_path: str, train_codes: List[str]) -> str:
     """调用导出接口下载 Excel 并返回本地文件路径。"""
     # 1) 下载 Excel 并保存到本地
-    saved = download_export_loaded_box_xlsx(
+    saved = download_export_excel(
         url=export_api["url"],
         headers=export_api["headers"],
         real_train_codes=train_codes,
@@ -155,7 +146,7 @@ def _export_excel(export_api: Dict[str, Any], out_path: str, train_codes: List[s
     return saved
 
 
-def _post_process_excel(processing: Dict[str, Any], input_path: str) -> None:
+def _split_export_excel(processing: Dict[str, Any], input_path: str) -> None:
     """按配置拆分 Excel（委托客户过滤 + 实际订舱客户拆分）。"""
     if not processing.get("enabled", True):
         return
@@ -163,7 +154,7 @@ def _post_process_excel(processing: Dict[str, Any], input_path: str) -> None:
     consigner_env_key = processing.get("consigner_env_key", "")
     consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
     # 2) 执行拆分
-    outputs = split_excel_by_actual_booker(
+    outputs = split_excel_by_booker(
         input_path=input_path,
         output_dir=processing.get("output_dir", "data/actual_booker"),
         consigner_field=processing.get("consigner_field", "委托客户"),
@@ -186,15 +177,15 @@ def main() -> None:
 
     # 2) 读取运行期参数并补齐目标日期
     run_config = config["run"]
-    target_day = _resolve_target_day(run_config)
+    target_day = _ensure_target_day(run_config)
 
     # 3) 准备列表接口配置并同步查询日期
     list_api = config["list_api"]
-    _sync_departure_date(list_api, target_day)
+    _apply_departure_date(list_api, target_day)
     pagination = list_api.get("pagination", {})
 
     # 4) 拉取列表数据
-    rows = _fetch_rows(list_api, pagination)
+    rows = _fetch_list_rows(list_api, pagination)
     logger.info("列表接口返回条数=%s", len(rows))
 
     # 5) 可选保存原始 rows，便于核对/调试
@@ -205,7 +196,7 @@ def main() -> None:
         logger.info("已保存 sample_rows.json -> %s", sample_path)
 
     # 6) 本地按日期筛选 real_train_code
-    train_codes = filter_codes_for_day(rows, target_day)
+    train_codes = filter_train_codes_by_day(rows, target_day)
     logger.info("按日期 %s 筛选车次数量=%s", target_day, len(train_codes))
     logger.info("车次清单=%s", ",".join(train_codes))
 
@@ -214,12 +205,12 @@ def main() -> None:
     output_dir = Path(run_config.get("output_dir", "data"))
     output_template = run_config.get("output_filename_template", "export_loaded_box_{day}.xlsx")
     out_path = output_dir / output_template.format(day=target_day)
-    saved_path = _export_excel(export_api, str(out_path), train_codes)
+    saved_path = _download_export_excel(export_api, str(out_path), train_codes)
     logger.info("已保存 Excel => %s", saved_path)
 
     # 8) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
     processing = config.get("processing", {})
-    _post_process_excel(processing, saved_path)
+    _split_export_excel(processing, saved_path)
 
 
 if __name__ == "__main__":
