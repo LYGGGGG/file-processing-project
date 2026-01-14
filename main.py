@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 
@@ -96,14 +96,13 @@ def _sync_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
     list_cfg["payload_template"] = payload
 
 
-def main() -> None:
-    """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
-    # 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
+def _prepare_auth(config: Dict[str, Any]) -> None:
+    """准备鉴权信息：加载 .env、登录（可选）、同步 token 并校验配置。"""
+    # 1) 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
     load_dotenv()
-    config = CONFIG
-    login_cfg = config.get("login_api", {})
-    if login_cfg.get("enabled", False):
-        # 自动登录获取 cookie（含 AUTH_TOKEN）
+    login_config = config.get("login_api", {})
+    if login_config.get("enabled", False):
+        # 2) 自动登录获取 cookie（包含 AUTH_TOKEN）
         cookies = login.login()
         if not cookies:
             raise RuntimeError("登录失败，未获取到 Cookie 信息。")
@@ -111,90 +110,116 @@ def main() -> None:
             cookie_pairs=cookies,
             preferred_keys=("AUTH_TOKEN", "BGWL-EXEC-PROD", "HWWAFSESID", "HWWAFSESTIME"),
         )
-        os.environ[login_cfg.get("cookie_env", "COOKIE")] = cookie_header
-        _sync_auth_token_from_cookie(cookie_header, env_key=login_cfg.get("token_env", "AUTH_TOKEN"))
+        os.environ[login_config.get("cookie_env", "COOKIE")] = cookie_header
+        _sync_auth_token_from_cookie(cookie_header, env_key=login_config.get("token_env", "AUTH_TOKEN"))
     else:
-        # 仅使用已有 cookie 时，也尝试补齐 AUTH_TOKEN
-        cookie_env_key = login_cfg.get("cookie_env", "COOKIE")
+        # 2) 不登录时，仅使用已有 cookie，并尝试补齐 AUTH_TOKEN
+        cookie_env_key = login_config.get("cookie_env", "COOKIE")
         _sync_auth_token_from_cookie(os.getenv(cookie_env_key, ""))
 
-    # 在进入请求前确认鉴权信息齐全
+    # 3) 在进入请求前确认鉴权信息齐全
     _validate_auth_headers("list_api", config["list_api"].get("headers", {}))
     _validate_auth_headers("export_api", config["export_api"].get("headers", {}))
 
-    # 列表接口配置
-    list_cfg = config["list_api"]
-    # 分页相关配置（可选）
-    pagination_cfg = list_cfg.get("pagination", {})
-    # 运行期参数（如目标日期、输出路径等）
-    run_cfg = config["run"]
-    target_day = _resolve_target_day(run_cfg)
-    _sync_departure_date(list_cfg, target_day)
 
+def _fetch_rows(list_api: Dict[str, Any], pagination: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """执行列表查询并返回合并后的 rows。"""
     # 1) 拉取列表数据（分页合并后的所有 rows）
-    rows = fetch_all_real_train_info(
-        list_cfg["url"],
-        list_cfg["headers"],
-        list_cfg["payload_template"],
-        page_number_field=pagination_cfg.get("page_param", "pageNumber"),
-        page_size_field=pagination_cfg.get("page_size_param", "pageSize"),
-        rows_field=pagination_cfg.get("rows_field", "rows"),
-        total_field=pagination_cfg.get("total_field", "total"),
-        start_page_number=pagination_cfg.get("start_page", 0),
-        retries=list_cfg.get("retries", 3),
-        timeout=list_cfg.get("timeout", 30),
-        sleep_between_pages=list_cfg.get("sleep_between_pages", 0.2),
-        auth_link_flow=list_cfg.get("auth_link_flow"),
+    return fetch_all_real_train_info(
+        list_api["url"],
+        list_api["headers"],
+        list_api["payload_template"],
+        page_number_field=pagination.get("page_param", "pageNumber"),
+        page_size_field=pagination.get("page_size_param", "pageSize"),
+        rows_field=pagination.get("rows_field", "rows"),
+        total_field=pagination.get("total_field", "total"),
+        start_page_number=pagination.get("start_page", 0),
+        retries=list_api.get("retries", 3),
+        timeout=list_api.get("timeout", 30),
+        sleep_between_pages=list_api.get("sleep_between_pages", 0.2),
+        auth_link_flow=list_api.get("auth_link_flow"),
     )
+
+def _export_excel(export_api: Dict[str, Any], out_path: str, train_codes: List[str]) -> str:
+    """调用导出接口下载 Excel 并返回本地文件路径。"""
+    # 1) 下载 Excel 并保存到本地
+    saved = download_export_loaded_box_xlsx(
+        url=export_api["url"],
+        headers=export_api["headers"],
+        real_train_codes=train_codes,
+        out_path=out_path,
+        flag=export_api.get("flag", "单表"),
+        retries=export_api.get("retries", 3),
+        timeout=export_api.get("timeout", 60),
+    )
+    return saved
+
+
+def _post_process_excel(processing: Dict[str, Any], input_path: str) -> None:
+    """按配置拆分 Excel（委托客户过滤 + 实际订舱客户拆分）。"""
+    if not processing.get("enabled", True):
+        return
+    # 1) 从环境变量读取委托客户名称，便于外部配置
+    consigner_env_key = processing.get("consigner_env_key", "")
+    consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
+    # 2) 执行拆分
+    outputs = split_excel_by_actual_booker(
+        input_path=input_path,
+        output_dir=processing.get("output_dir", "data/actual_booker"),
+        consigner_field=processing.get("consigner_field", "委托客户"),
+        consigner_value=consigner_value,
+        actual_booker_field=processing.get("actual_booker_field", "实际订舱客户"),
+        actual_booker_exclude=processing.get("actual_booker_exclude"),
+        sheet_name=processing.get("sheet_name", "data"),
+        output_template=processing.get("output_template", "{actual_booker}.xlsx"),
+    )
+    logger.info("实际订舱客户拆分输出=%s", list(outputs.values()))
+
+
+def main() -> None:
+    """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
+    # 0) 初始化配置
+    config = CONFIG
+
+    # 1) 准备鉴权信息（登录/同步 token/校验）
+    _prepare_auth(config)
+
+    # 2) 读取运行期参数并补齐目标日期
+    run_config = config["run"]
+    target_day = _resolve_target_day(run_config)
+
+    # 3) 准备列表接口配置并同步查询日期
+    list_api = config["list_api"]
+    _sync_departure_date(list_api, target_day)
+    pagination = list_api.get("pagination", {})
+
+    # 4) 拉取列表数据
+    rows = _fetch_rows(list_api, pagination)
     logger.info("列表接口返回条数=%s", len(rows))
 
-    # 2) 可选保存原始 rows，便于核对/调试
-    if run_cfg.get("save_sample_rows", False):
-        sample_path = run_cfg.get("sample_rows_path", "sample_rows.json")
+    # 5) 可选保存原始 rows，便于核对/调试
+    if run_config.get("save_sample_rows", False):
+        sample_path = run_config.get("sample_rows_path", "sample_rows.json")
         with open(sample_path, "w", encoding="utf-8") as handle:
             json.dump(rows, handle, ensure_ascii=False, indent=2)
         logger.info("已保存 sample_rows.json -> %s", sample_path)
 
-    # 3) 本地按日期筛选 real_train_code
-    codes = filter_codes_for_day(rows, target_day)
-    logger.info("按日期 %s 筛选车次数量=%s", target_day, len(codes))
-    logger.info("车次清单=%s", ",".join(codes))
+    # 6) 本地按日期筛选 real_train_code
+    train_codes = filter_codes_for_day(rows, target_day)
+    logger.info("按日期 %s 筛选车次数量=%s", target_day, len(train_codes))
+    logger.info("车次清单=%s", ",".join(train_codes))
 
-    # 4) 根据配置拼接输出文件路径
-    export_cfg = config["export_api"]
-    output_dir = Path(run_cfg.get("output_dir", "data"))
-    output_template = run_cfg.get("output_filename_template", "export_loaded_box_{day}.xlsx")
-    out_file = output_dir / output_template.format(day=target_day)
+    # 7) 导出 Excel（先拼接输出路径）
+    export_api = config["export_api"]
+    output_dir = Path(run_config.get("output_dir", "data"))
+    output_template = run_config.get("output_filename_template", "export_loaded_box_{day}.xlsx")
+    out_path = output_dir / output_template.format(day=target_day)
+    saved_path = _export_excel(export_api, str(out_path), train_codes)
+    logger.info("已保存 Excel => %s", saved_path)
 
-    # 5) 下载 Excel 并保存到本地
-    saved = download_export_loaded_box_xlsx(
-        url=export_cfg["url"],
-        headers=export_cfg["headers"],
-        real_train_codes=codes,
-        out_path=str(out_file),
-        flag=export_cfg.get("flag", "单表"),
-        retries=export_cfg.get("retries", 3),
-        timeout=export_cfg.get("timeout", 60),
-    )
-    logger.info("已保存 Excel => %s", saved)
-
-    # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
-    processing_cfg = config.get("processing", {})
-    if processing_cfg.get("enabled", True):
-        # 从环境变量读取委托客户名称，便于外部配置
-        consigner_env_key = processing_cfg.get("consigner_env_key", "")
-        consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
-        outputs = split_excel_by_actual_booker(
-            input_path=saved,
-            output_dir=processing_cfg.get("output_dir", "data/actual_booker"),
-            consigner_field=processing_cfg.get("consigner_field", "委托客户"),
-            consigner_value=consigner_value,
-            actual_booker_field=processing_cfg.get("actual_booker_field", "实际订舱客户"),
-            actual_booker_exclude=processing_cfg.get("actual_booker_exclude"),
-            sheet_name=processing_cfg.get("sheet_name", "data"),
-            output_template=processing_cfg.get("output_template", "{actual_booker}.xlsx"),
-        )
-        logger.info("实际订舱客户拆分输出=%s", list(outputs.values()))
+    # 8) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
+    processing = config.get("processing", {})
+    _post_process_excel(processing, saved_path)
 
 
 if __name__ == "__main__":
