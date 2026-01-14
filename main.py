@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from datetime import date
@@ -187,19 +186,12 @@ def main() -> None:
     rows = _fetch_list_rows(list_api, pagination)
     logger.info("列表接口返回条数=%s", len(rows))
 
-    # 5) 可选保存原始 rows，便于核对/调试
-    if run_config.get("save_sample_rows", False):
-        sample_path = run_config.get("sample_rows_path", "sample_rows.json")
-        with open(sample_path, "w", encoding="utf-8") as handle:
-            json.dump(rows, handle, ensure_ascii=False, indent=2)
-        logger.info("已保存 sample_rows.json -> %s", sample_path)
-
-    # 6) 本地按日期筛选 real_train_code
+    # 5) 本地按日期筛选 real_train_code
     train_codes = filter_train_codes_by_day(rows, target_day)
     logger.info("按日期 %s 筛选车次数量=%s", target_day, len(train_codes))
     logger.info("车次清单=%s", ",".join(train_codes))
 
-    # 7) 导出 Excel（先拼接输出路径）
+    # 6) 导出 Excel（先拼接输出路径）
     export_api = config["export_api"]
     output_dir = Path(run_config.get("output_dir", "data"))
     output_template = run_config.get("output_filename_template", "export_loaded_box_{day}.xlsx")
@@ -207,7 +199,7 @@ def main() -> None:
     saved_path = _download_export_excel(export_api, str(out_path), train_codes)
     logger.info("已保存 Excel => %s", saved_path)
 
-    # 8) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
+    # 7) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
     processing = config.get("processing", {})
     _split_export_excel(processing, saved_path)
 
