@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict
 
@@ -52,8 +53,7 @@ CONFIG: Dict[str, Any] = {
                 "lineCode": "",
                 "lineName": "",
                 "upOrDown": "上行",
-                "departureDateStart": "2026-01-014 00:00:00",
-                "departureDateEnd": "",
+                "departureDateStart": "",
                 "loadingTimeStart": "",
                 "loadingTimeEnd": "",
             },
@@ -88,7 +88,7 @@ CONFIG: Dict[str, Any] = {
         },
     },
     "run": {
-        "target_day": "2026-01-14",
+        "target_day": "",
         "output_dir": "data",
         "output_filename_template": "export_loaded_box_{day}.xlsx",
         "save_sample_rows": False,
@@ -194,6 +194,24 @@ def _sync_auth_token_from_cookie(cookie_header: str, env_key: str = "AUTH_TOKEN"
             return
 
 
+def _resolve_target_day(run_cfg: Dict[str, Any]) -> str:
+    target_day = run_cfg.get("target_day", "")
+    if not target_day:
+        target_day = date.today().strftime("%Y-%m-%d")
+        run_cfg["target_day"] = target_day
+    return target_day
+
+
+def _sync_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
+    payload = list_cfg.get("payload_template", {})
+    params = payload.get("params", {})
+    if not params.get("departureDateStart"):
+        params["departureDateStart"] = f"{target_day} 00:00:00"
+    params.pop("departureDateEnd", None)
+    payload["params"] = params
+    list_cfg["payload_template"] = payload
+
+
 def main() -> None:
     """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
     # 读取 .env（如果存在），将 AUTH_TOKEN / COOKIE 等注入环境变量
@@ -223,6 +241,8 @@ def main() -> None:
     pagination_cfg = list_cfg.get("pagination", {})
     # 运行期参数（如目标日期、输出路径等）
     run_cfg = config["run"]
+    target_day = _resolve_target_day(run_cfg)
+    _sync_departure_date(list_cfg, target_day)
 
     # 1) 拉取列表数据（分页合并后的所有 rows）
     rows = fetch_all_real_train_info(
@@ -249,7 +269,6 @@ def main() -> None:
         logger.info("已保存 sample_rows.json -> %s", sample_path)
 
     # 3) 本地按日期筛选 real_train_code
-    target_day = run_cfg["target_day"]
     codes = filter_codes_for_day(rows, target_day)
     logger.info("按日期 %s 筛选车次数量=%s", target_day, len(codes))
     logger.info("车次清单=%s", ",".join(codes))
