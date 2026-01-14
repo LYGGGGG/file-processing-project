@@ -88,7 +88,7 @@ def save_api_data() -> Tuple[str, str, Optional[Path]]:
             logger.info("验证码识别结果: %s (rs_id=%s)", text, rs_id)
             save_dir = Path("data") / "captcha"
             save_dir.mkdir(parents=True, exist_ok=True)
-            save_path = save_dir / f"captcha_{show_value}.{img_format}"
+            save_path = save_dir / "captcha.png"
             save_path.write_bytes(image_bytes)
             logger.info("验证码图片已保存: %s (bytes=%s)", save_path, len(image_bytes))
             return rs_id, text, save_path

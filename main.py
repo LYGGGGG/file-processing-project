@@ -91,7 +91,7 @@ CONFIG: Dict[str, Any] = {
         "target_day": "2026-01-13",
         "output_dir": "data",
         "output_filename_template": "export_loaded_box_{day}.xlsx",
-        "save_sample_rows": True,
+        "save_sample_rows": False,
         "sample_rows_path": "sample_rows.json",
     },
     "processing": {
