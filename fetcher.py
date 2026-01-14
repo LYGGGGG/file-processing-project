@@ -1,6 +1,7 @@
 import logging
 import math
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -139,23 +140,53 @@ def fetch_train_rows(
 # filter: pick codes for a day
 # -------------------------
 
-def filter_train_codes_by_day(rows: List[Dict[str, Any]], day: str) -> List[str]:
+def _parse_departure_datetime(value: str) -> Optional[datetime]:
+    """解析接口返回的出发时间字符串，兼容日期/日期时间格式。"""
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def filter_train_codes_by_day(
+    rows: List[Dict[str, Any]],
+    day: str,
+    *,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+) -> List[str]:
     """
     从 listRealTrainInfo 的 rows 中筛选指定日期(day='YYYY-MM-DD')的 real_train_code。
-    规则：departure_date 的日期部分 == day
+    - 若提供 start_time/end_time，则按时间范围筛选（包含边界）。
+    - 否则退回使用 departure_date 的日期部分 == day。
 
     参数:
         rows: 列表接口返回的记录列表。
         day: 目标日期，格式为 YYYY-MM-DD。
+        start_time: 起始时间（YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS）。
+        end_time: 结束时间（YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS）。
 
     返回:
         去重后的 real_train_code 列表（保持原顺序）。
     """
+    start_dt = _parse_departure_datetime((start_time or "").strip())
+    end_dt = _parse_departure_datetime((end_time or "").strip())
     codes: List[str] = []
 
     for r in rows:
         # departure_date 字段可能包含时间，先取日期部分
         dep = (r.get("departure_date") or "").strip()
+        dep_dt = _parse_departure_datetime(dep)
+        if start_dt and end_dt and dep_dt:
+            if start_dt <= dep_dt <= end_dt:
+                code = (r.get("real_train_code") or "").strip()
+                if code:
+                    codes.append(code)
+            continue
         if len(dep) >= 10 and dep[:10] == day:
             code = (r.get("real_train_code") or "").strip()
             if code:

@@ -73,16 +73,23 @@ def _ensure_target_day(run_cfg: Dict[str, Any]) -> str:
     return target_day
 
 
-def _apply_departure_date(list_cfg: Dict[str, Any], target_day: str) -> None:
+def _apply_departure_date(list_cfg: Dict[str, Any], run_cfg: Dict[str, Any], target_day: str) -> None:
     """将目标日期同步到列表请求 payload，确保仅查询当天数据。"""
     payload = list_cfg.get("payload_template", {})
     params = payload.get("params", {})
+    if params.get("departureDateStart"):
+        run_cfg["departureDateStart"] = params.get("departureDateStart")
+    if params.get("departureDateEnd"):
+        run_cfg["departureDateEnd"] = params.get("departureDateEnd")
     # 如果未设置出发日期，则补齐当天 00:00:00
     if not params.get("departureDateStart"):
         params["departureDateStart"] = f"{target_day} 00:00:00"
+    if run_cfg.get("departureDateStart") and not run_cfg.get("departureDateEnd"):
+        run_cfg["departureDateEnd"] = f"{target_day} 23:59:59"
     logger.info(
-        "列表查询使用 departureDateStart=%s",
+        "列表查询使用 departureDateStart=%s, departureDateEnd=%s",
         params.get("departureDateStart"),
+        params.get("departureDateEnd"),
     )
     # 避免配置中残留结束日期造成筛选冲突
     params.pop("departureDateEnd", None)
@@ -183,7 +190,7 @@ def main() -> None:
 
     # 3) 准备列表接口配置并同步查询日期
     list_api = config["list_api"]
-    _apply_departure_date(list_api, target_day)
+    _apply_departure_date(list_api, run_config, target_day)
     pagination = list_api.get("pagination", {})
 
     # 4) 拉取列表数据
@@ -191,7 +198,12 @@ def main() -> None:
     logger.info("列表接口返回条数=%s", len(rows))
 
     # 5) 本地按日期筛选 real_train_code
-    train_codes = filter_train_codes_by_day(rows, target_day)
+    train_codes = filter_train_codes_by_day(
+        rows,
+        target_day,
+        start_time=run_config.get("departureDateStart"),
+        end_time=run_config.get("departureDateEnd"),
+    )
     logger.info("按日期 %s 筛选车次数量=%s", target_day, len(train_codes))
     logger.info("车次清单=%s", ",".join(train_codes))
 
