@@ -13,7 +13,7 @@ from fetcher import (
     filter_codes_for_day,
 )
 
-from processor import split_excel_by_province
+from processor import split_excel_by_actual_booker
 from utils import build_cookie_header
 
 # 主入口日志
@@ -98,10 +98,11 @@ CONFIG: Dict[str, Any] = {
         "enabled": True,
         "consigner_field": "委托客户",
         "consigner_env_key": "CONSIGNOR_NAME",
-        "province_field": "省份",
-        "output_dir": "data/province",
+        "actual_booker_field": "实际订舱客户",
+        "actual_booker_exclude": "陆海新通道",
+        "output_dir": "data/actual_booker",
         "sheet_name": "data",
-        "output_template": "{province}.xlsx",
+        "output_template": "{actual_booker}.xlsx",
     },
     "login_api": {
         "enabled": True,
@@ -271,22 +272,23 @@ def main() -> None:
     )
     logger.info("已保存 Excel => %s", saved)
 
-    # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按省份拆分
+    # 6) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分
 
     processing_cfg = config.get("processing", {})
     if processing_cfg.get("enabled", True):
         consigner_env_key = processing_cfg.get("consigner_env_key", "")
         consigner_value = os.getenv(consigner_env_key, "") if consigner_env_key else ""
-        outputs = split_excel_by_province(
+        outputs = split_excel_by_actual_booker(
             input_path=saved,
-            output_dir=processing_cfg.get("output_dir", "data/province"),
-            province_field=processing_cfg.get("province_field", "省份"),
+            output_dir=processing_cfg.get("output_dir", "data/actual_booker"),
             consigner_field=processing_cfg.get("consigner_field", "委托客户"),
             consigner_value=consigner_value,
+            actual_booker_field=processing_cfg.get("actual_booker_field", "实际订舱客户"),
+            actual_booker_exclude=processing_cfg.get("actual_booker_exclude"),
             sheet_name=processing_cfg.get("sheet_name", "data"),
-            output_template=processing_cfg.get("output_template", "{province}.xlsx"),
+            output_template=processing_cfg.get("output_template", "{actual_booker}.xlsx"),
         )
-        logger.info("省份拆分输出=%s", list(outputs.values()))
+        logger.info("实际订舱客户拆分输出=%s", list(outputs.values()))
 
 
 if __name__ == "__main__":
