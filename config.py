@@ -1,5 +1,7 @@
 from typing import Any, Dict
 
+# 配置总表：集中定义接口地址、鉴权参数、分页规则与处理逻辑。
+# 通过环境变量注入敏感信息，避免硬编码 token/cookie。
 CONFIG: Dict[str, Any] = {
     # 列表接口：用于拉取列车/班列基础数据
     "list_api": {

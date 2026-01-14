@@ -61,10 +61,13 @@ def fetch_all_real_train_info(
     # 将 headers / payload 中的 ${ENV} 占位符替换为环境变量
     headers = deep_inject_env(headers)
     base_payload = deep_inject_env(payload_template)
+    # auth_link_flow 中也支持 ${ENV} 注入，便于开关与配置外置化
     auth_link_flow = deep_inject_env(auth_link_flow or {})
+    # 标记是否已执行过 auth-link 流程，避免重复执行
     auth_link_state = {"used": False}
 
     def _parse_cookie_header(cookie_header: str) -> Dict[str, str]:
+        """解析 Cookie header 为字典，便于读取 AUTH_TOKEN 等值。"""
         cookies: Dict[str, str] = {}
         for part in cookie_header.split(";"):
             part = part.strip()
@@ -75,14 +78,17 @@ def fetch_all_real_train_info(
         return cookies
 
     def _get_auth_token(cookie_header: str) -> Optional[str]:
+        """从 header/cookie/env 中按优先级获取 auth_token。"""
         cookie_token = _parse_cookie_header(cookie_header).get("AUTH_TOKEN")
         header_token = headers.get("auth_token")
         env_token = os.getenv(auth_link_flow.get("auth_token_env", "AUTH_TOKEN"))
         return header_token or cookie_token or env_token
 
     def _normalize_auth_header() -> None:
+        """将 AUTH_TOKEN 填充到 headers，避免接口返回 401。"""
         token = _get_auth_token(headers.get("cookie", "") or "")
         current = headers.get("auth_token")
+        # 若 headers 中仍为占位符，则移除以便写入真实 token
         if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
             headers.pop("auth_token", None)
             current = None
@@ -90,6 +96,7 @@ def fetch_all_real_train_info(
             headers["auth_token"] = token
 
     def _apply_cookies_to_session() -> None:
+        """将 Cookie header 写入 Session，确保后续请求携带 cookie。"""
         cookie_header = headers.get("cookie")
         if not cookie_header:
             return
@@ -98,6 +105,7 @@ def fetch_all_real_train_info(
             session.cookies.update(parsed)
 
     def _run_auth_link_flow() -> None:
+        """执行 auth-link 流程以刷新鉴权，主要用于 401 重试场景。"""
         if not auth_link_flow.get("enabled", False):
             return
         cookie_header = headers.get("cookie", "")
@@ -127,6 +135,7 @@ def fetch_all_real_train_info(
         transfer_headers["auth_token"] = auth_token
         verify_ssl = auth_link_flow.get("verify_ssl", True)
 
+        # 第一步：transfer 接口获取 auth-key-link
         logger.info("auth-link transfer 请求 URL：%s", transfer_url)
         transfer_resp = session.post(
             transfer_url,
@@ -165,6 +174,7 @@ def fetch_all_real_train_info(
         me_url = auth_link_flow.get("me_url", "https://bgwlgl.bbwport.com:6443/me.json")
         timestamp = int(time.time() * 1000)
         me_request_url = f"{me_url}?_d={timestamp}&auth-key-link={auth_key_link}"
+        # 第二步：访问 me.json 刷新会话
         logger.info("auth-link me.json URL：%s", me_request_url)
         session.get(
             me_request_url,
@@ -188,6 +198,7 @@ def fetch_all_real_train_info(
                     and not auth_link_state["used"]
                     and auth_link_flow.get("enabled", False)
                 ):
+                    # 首次 401 时尝试 auth-link 刷新鉴权
                     logger.warning("列表接口 401，尝试执行 auth-link 刷新流程。")
                     _run_auth_link_flow()
                     auth_link_state["used"] = True
@@ -209,7 +220,7 @@ def fetch_all_real_train_info(
     first = _post_with_retry(first_payload)
     # total 为接口返回总数量；如果拿不到则按 0 处理
     total = int(first.get(total_field, 0) or 0)
-    # page_size 取自 payload 模板
+    # page_size 取自 payload 模板，缺省 200
     page_size = int(base_payload.get(page_size_field, 200))
     rows = first.get(rows_field, []) or []
     all_rows: List[Dict[str, Any]] = list(rows)
@@ -320,6 +331,7 @@ def download_export_loaded_box_xlsx(
     headers = deep_inject_env(headers)
 
     def _parse_cookie_header(cookie_header: str) -> Dict[str, str]:
+        """解析 Cookie header，供 auth_token 兜底使用。"""
         cookies: Dict[str, str] = {}
         for part in cookie_header.split(";"):
             part = part.strip()
@@ -330,6 +342,7 @@ def download_export_loaded_box_xlsx(
         return cookies
 
     def _normalize_auth_header() -> None:
+        """确保 headers 中存在 auth_token，避免接口拒绝。"""
         current = headers.get("auth_token")
         if isinstance(current, str) and current.startswith("${") and current.endswith("}"):
             headers.pop("auth_token", None)

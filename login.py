@@ -13,14 +13,17 @@ import ddddocr
 import requests
 
 
-# 模块级日志器
+# 模块级日志器：输出验证码与登录流程日志
 logger = logging.getLogger(__name__)
 
+# 验证码缓存有效期（秒），用于减少重复请求验证码接口
 CAPTCHA_CACHE_TTL_SECONDS = int(os.getenv("CAPTCHA_TTL_SECONDS", "60"))
+# 缓存结构: rs_id/code/path/fetched_at
 _CAPTCHA_CACHE: dict = {}
 
 
 def _get_cached_captcha() -> Optional[Tuple[str, str, Optional[Path]]]:
+    """读取验证码缓存，若超时则返回 None。"""
     if not _CAPTCHA_CACHE:
         return None
     fetched_at = _CAPTCHA_CACHE.get("fetched_at")
@@ -28,6 +31,7 @@ def _get_cached_captcha() -> Optional[Tuple[str, str, Optional[Path]]]:
         return None
     age = time.time() - fetched_at
     if age >= CAPTCHA_CACHE_TTL_SECONDS:
+        # 超过 TTL 则丢弃缓存
         logger.info("验证码缓存已过期: age=%.2fs ttl=%ss", age, CAPTCHA_CACHE_TTL_SECONDS)
         return None
     logger.info("使用缓存验证码: age=%.2fs ttl=%ss", age, CAPTCHA_CACHE_TTL_SECONDS)
@@ -39,10 +43,12 @@ def _get_cached_captcha() -> Optional[Tuple[str, str, Optional[Path]]]:
 
 
 def get_captcha_data(*, force_refresh: bool = False) -> Tuple[str, str, Optional[Path]]:
+    """读取验证码数据，必要时重新请求并更新缓存。"""
     if not force_refresh:
         cached = _get_cached_captcha()
         if cached:
             return cached
+    # 强制刷新或缓存失效时重新请求验证码
     rs_id, code, path = save_api_data()
     _CAPTCHA_CACHE.clear()
     _CAPTCHA_CACHE.update(
@@ -91,6 +97,7 @@ def save_api_data() -> Tuple[str, str, Optional[Path]]:
             save_path = save_dir / "captcha.png"
             save_path.write_bytes(image_bytes)
             logger.info("验证码图片已保存: %s (bytes=%s)", save_path, len(image_bytes))
+            # 返回识别文本与文件路径
             return rs_id, text, save_path
         logger.warning("验证码图片解析失败，原始数据格式不符合预期。")
         return rs_id, "", None
@@ -106,7 +113,9 @@ def save_api_data() -> Tuple[str, str, Optional[Path]]:
 
 
 def create_output_method(method: str) -> Callable[[str], str]:
+    """生成指定输出格式的 MD5 计算函数。"""
     def hash_func(input_str: str) -> str:
+        # 按 UTF-8 编码计算 MD5
         md5 = hashlib.md5(input_str.encode('utf-8'))
         if method == 'hexdigest':
             return md5.hexdigest()
@@ -119,11 +128,13 @@ def create_output_method(method: str) -> Callable[[str], str]:
 
 # 获取cookie
 def get_cookie():
+    """请求验证码并执行登录，返回登录响应与 session。"""
     temp = get_captcha_data()
     rs_id = temp[0]
     code = temp[1]
     logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
     md5_hex = create_output_method('hexdigest')
+    # 登录 payload 使用 MD5 加密后的固定密码示例
     dataList = {
         "rsid": rs_id,
         "code": code,
@@ -147,6 +158,7 @@ def get_cookie():
 
 
 def verify_cookies():
+    """校验登录响应中的 cookie 与 AUTH_TOKEN，返回可用 cookie 字典。"""
     temp = get_cookie()
 
     # 从登录响应中获取所有 cookies
@@ -175,6 +187,7 @@ def verify_cookies():
 
 
 def login():
+    """统一入口：获取 cookie，失败时返回 None。"""
     try:
         return verify_cookies()
     except Exception as e:
