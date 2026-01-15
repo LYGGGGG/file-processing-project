@@ -132,8 +132,6 @@ def _get_login_credentials() -> Tuple[str, str]:
     load_dotenv()
     username = os.getenv("LOGIN_USERNAME", "").strip()
     password = os.getenv("LOGIN_PASSWORD", "").strip()
-    if not username or not password:
-        raise RuntimeError("缺少登录账号信息，请在 .env 中设置 LOGIN_USERNAME 与 LOGIN_PASSWORD。")
     return username, password
 
 
@@ -184,5 +182,4 @@ def fetch_login_session():
     print('最终的cookie:', cookies)
 
     return cookies
-
 
