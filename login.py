@@ -114,7 +114,7 @@ def save_api_data() -> Tuple[str, str, Optional[Path]]:
 
 def create_output_method(method: str) -> Callable[[str], str]:
     """生成指定输出格式的 MD5 计算函数。"""
-    def hash_func(input_str: str) -> str:
+    def compute_hash(input_str: str) -> str:
         # 按 UTF-8 编码计算 MD5
         md5 = hashlib.md5(input_str.encode('utf-8'))
         if method == 'hexdigest':
@@ -123,7 +123,7 @@ def create_output_method(method: str) -> Callable[[str], str]:
             return md5.digest().decode('latin1')
         raise ValueError(f"Unsupported method: {method}")
 
-    return hash_func
+    return compute_hash
 
 
 # 获取cookie
@@ -186,7 +186,7 @@ def verify_login_cookies():
 
 
 
-def login():
+def perform_login():
     """统一入口：获取 cookie，失败时返回 None。"""
     try:
         return verify_login_cookies()
