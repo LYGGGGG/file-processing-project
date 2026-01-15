@@ -139,7 +139,7 @@ def _get_login_credentials() -> Tuple[str, str]:
 
 # 获取cookie
 def fetch_login_session():
-    """请求验证码并执行登录，返回登录响应与 session。"""
+    """请求验证码并执行登录，返回可用 cookie 字典。"""
     captcha_result = get_captcha_data()
     rs_id = captcha_result[0]
     code = captcha_result[1]
@@ -166,42 +166,23 @@ def fetch_login_session():
     login_response = session.post(url, headers=headers, data=payload)
     # print(login_response.json()['data'])
 
-    return login_response, session
-
-
-def verify_login_cookies():
-    """校验登录响应中的 cookie 与 AUTH_TOKEN，返回可用 cookie 字典。"""
-    login_result = fetch_login_session()
-
     # 从登录响应中获取所有 cookies
-    cookies_list = login_result[1].cookies.items()
+    cookies_list = list(session.cookies.items())
     # print("cookies_list:")
     # print(cookies_list)
 
     # 获取 AUTH_TOKEN
-    auth_token = login_result[0].json()['data']
+    auth_token = login_response.json()['data']
     # print("AUTH_TOKEN:")
     # print(auth_token)
-    # 确保从正确的 session 中获取 BGWL-EXEC-PROD
-    bgwl_exec_prod = login_result[1].cookies.get('BGWL-EXEC-PROD')
     cookies = {
         'IGNORE-SESSION': '-',
         'AUTH_TOKEN': auth_token,
-        'BGWL-EXEC-PROD': bgwl_exec_prod,
         'HWWAFSESTIME': cookies_list[1][1],
         'HWWAFSESID': cookies_list[0][1],
     }
     print('最终的cookie:', cookies)
 
-
     return cookies
 
 
-
-def perform_login():
-    """统一入口：获取 cookie，失败时返回 None。"""
-    try:
-        return verify_login_cookies()
-    except Exception as e:
-        print(f"GWL-EXEC-PROD验证失败: {e}")
-        return None
