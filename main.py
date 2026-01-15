@@ -104,7 +104,7 @@ def _prepare_auth(config: Dict[str, Any]) -> None:
     login_config = config.get("login_api", {})
     if login_config.get("enabled", False):
         # 2) 自动登录获取 cookie（包含 AUTH_TOKEN）
-        cookies = login.perform_login()
+        cookies = login.fetch_login_session()
         if not cookies:
             raise RuntimeError("登录失败，未获取到 Cookie 信息。")
         cookie_header = build_cookie_header(

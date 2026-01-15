@@ -138,9 +138,7 @@ def _get_login_credentials() -> Tuple[str, str]:
 # 获取cookie
 def fetch_login_session():
     """请求验证码并执行登录，返回可用 cookie 字典。"""
-    captcha_result = get_captcha_data()
-    rs_id = captcha_result[0]
-    code = captcha_result[1]
+    rs_id, code, path = get_captcha_data()
     logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
     md5_hex = create_output_method('hexdigest')
     username, password = _get_login_credentials()
@@ -179,7 +177,8 @@ def fetch_login_session():
         'HWWAFSESTIME': cookies_list[1][1],
         'HWWAFSESID': cookies_list[0][1],
     }
-    print('最终的cookie:', cookies)
-
+    logger.info("path: ",path)
+    logger.info("最终 cookie: %s", cookies)
     return cookies
+
 
