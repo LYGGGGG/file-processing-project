@@ -104,7 +104,7 @@ def _prepare_auth(config: Dict[str, Any]) -> None:
     login_config = config.get("login_api", {})
     if login_config.get("enabled", False):
         # 2) 自动登录获取 cookie（包含 AUTH_TOKEN）
-        cookies = login.login()
+        cookies = login.perform_login()
         if not cookies:
             raise RuntimeError("登录失败，未获取到 Cookie 信息。")
         cookie_header = build_cookie_header(
@@ -176,7 +176,7 @@ def _split_export_excel(processing: Dict[str, Any], input_path: str) -> None:
     logger.info("实际订舱客户拆分输出=%s", list(outputs.values()))
 
 
-def main() -> None:
+def run_main() -> None:
     """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
     # 0) 初始化配置
     config = CONFIG
@@ -221,4 +221,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_main()
