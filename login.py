@@ -98,7 +98,6 @@ def _extract_auth_token(response: requests.Response, cookies_list: list) -> str:
     try:
         payload = response.json()
     except ValueError:
-        logger.warning("登录响应无法解析为 JSON。")
         payload = {}
     token = payload.get("data")
     if isinstance(token, dict):
