@@ -14,11 +14,6 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
-def _sleep_with_backoff(attempt: int, base: float) -> None:
-    """重试退避等待。"""
-    time.sleep(base ** attempt)
-
-
 def _prepare_session(
     headers: Dict[str, str],
     session: Optional[requests.Session] = None,
@@ -37,29 +32,37 @@ def _prepare_session(
     return session, headers
 
 
-def _post_with_retry(
+def _request_with_retry(
     session: requests.Session,
+    method: str,
     url: str,
     headers: Dict[str, str],
-    payload: Dict[str, Any],
+    payload: Optional[Dict[str, Any]] = None,
     *,
     retries: int,
     retry_backoff_base: float,
     timeout: int,
     log_label: str,
-) -> Dict[str, Any]:
-    """带重试的 POST 请求。"""
+    expect_json: bool = True,
+) -> Any:
+    """带重试的请求。"""
     last_exc: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
             logger.info("%s 请求 URL：%s", log_label, url)
-            resp = session.post(url, json=payload, headers=headers, timeout=timeout)
+            resp = session.request(
+                method,
+                url,
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+            )
             resp.raise_for_status()
-            return resp.json()
+            return resp.json() if expect_json else resp.content
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             logger.warning("%s 请求失败（第 %s/%s 次）：%s", log_label, attempt, retries, exc)
-            _sleep_with_backoff(attempt, retry_backoff_base)
+            time.sleep(retry_backoff_base**attempt)
 
     raise last_exc  # type: ignore[misc]
 
@@ -87,16 +90,21 @@ def fetch_train_rows(
     first_payload = dict(base_payload)
     first_payload[page_number_field] = start_page_number
 
-    first = _post_with_retry(
-        session,
-        url,
-        headers,
-        first_payload,
-        retries=retries,
-        retry_backoff_base=retry_backoff_base,
-        timeout=timeout,
-        log_label="列表接口",
-    )
+    def post(payload: Dict[str, Any]) -> Dict[str, Any]:
+        return _request_with_retry(
+            session,
+            "POST",
+            url,
+            headers,
+            payload,
+            retries=retries,
+            retry_backoff_base=retry_backoff_base,
+            timeout=timeout,
+            log_label="列表接口",
+            expect_json=True,
+        )
+
+    first = post(first_payload)
     total = int(first.get(total_field, 0) or 0)
     page_size = int(base_payload.get(page_size_field, 200))
     rows = first.get(rows_field, []) or []
@@ -110,16 +118,7 @@ def fetch_train_rows(
     for i in range(1, total_pages):
         payload = dict(base_payload)
         payload[page_number_field] = start_page_number + i
-        data = _post_with_retry(
-            session,
-            url,
-            headers,
-            payload,
-            retries=retries,
-            retry_backoff_base=retry_backoff_base,
-            timeout=timeout,
-            log_label="列表接口",
-        )
+        data = post(payload)
         rows = data.get(rows_field, []) or []
         all_rows.extend(rows)
 
@@ -173,14 +172,7 @@ def filter_train_codes_by_day(
             if code:
                 codes.append(code)
 
-    dedup: List[str] = []
-    seen = set()
-    for code in codes:
-        if code not in seen:
-            seen.add(code)
-            dedup.append(code)
-
-    return dedup
+    return list(dict.fromkeys(codes))
 
 
 def download_export_excel(
@@ -202,23 +194,21 @@ def download_export_excel(
     session, headers = _prepare_session(headers, session)
     payload = {"realTrainCode": ",".join(real_train_codes), "flag": flag}
 
-    last_exc: Optional[Exception] = None
-    for attempt in range(1, retries + 1):
-        try:
-            logger.info("导出接口请求 URL：%s", url)
-            resp = session.post(url, json=payload, headers=headers, timeout=timeout)
-            resp.raise_for_status()
+    content = _request_with_retry(
+        session,
+        "POST",
+        url,
+        headers,
+        payload,
+        retries=retries,
+        retry_backoff_base=retry_backoff_base,
+        timeout=timeout,
+        log_label="导出接口",
+        expect_json=False,
+    )
 
-            Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(out_path, "wb") as file_obj:
-                file_obj.write(resp.content)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "wb") as file_obj:
+        file_obj.write(content)
 
-            return out_path
-        except Exception as exc:  # noqa: BLE001
-            last_exc = exc
-            logger.warning("导出下载失败（第 %s/%s 次）：%s", attempt, retries, exc)
-            _sleep_with_backoff(attempt, retry_backoff_base)
-
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("导出下载失败，但未捕获到异常")
+    return out_path
