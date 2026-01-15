@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import base64
 import hashlib
 import json
@@ -13,12 +12,11 @@ import ddddocr
 import requests
 from dotenv import load_dotenv
 
-
 # 模块级日志器：输出验证码与登录流程日志
 logger = logging.getLogger(__name__)
 
 def save_api_data() -> Tuple[str, str, Optional[Path]]:
-    """获取验证码信息并保存图片，返回(rs_id, 识别码, 保存路径)。"""
+    """请求验证码→识别→保存→返回 rs_id+code"""
     show_value = int(time.time() * 1000)
     url = f"https://bgwlgl.bbwport.com/api/bgwl-cloud-center/random?show={show_value}"
     try:
@@ -38,7 +36,6 @@ def save_api_data() -> Tuple[str, str, Optional[Path]]:
         match = re.match(r"data:image/(\w+);base64,(.*)", image_data)
 
         if match:
-            img_format = match.group(1)
             img_data = match.group(2)
             # 直接解码base64数据，避免写入临时文件
             image_bytes = base64.b64decode(img_data)
@@ -56,83 +53,32 @@ def save_api_data() -> Tuple[str, str, Optional[Path]]:
             return rs_id, text, save_path
         logger.warning("验证码图片解析失败，原始数据格式不符合预期。")
         return rs_id, "", None
-        # 保存rs_id
-        # with open("rs_id.txt", "w") as f:
-        #     f.write(data["_rs_id"])
+
     except Exception as e:
         logger.exception("获取验证码失败: %s", e)
         raise
 
 
-"""工厂函数生成指定输出格式的MD5计算函数"""
+"""生成一个算 MD5 的函数"""
+def md5_hexdigest(text: str) -> str:
+    """返回字符串的 MD5 十六进制摘要（用于登录密码）"""
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
 
+# 获取cookie
+def get_cookie():
+    """请求验证码并执行登录，返回可用 cookie 字典。"""
+    rs_id, code, _ = save_api_data()
+    logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
 
-def create_output_method(method: str) -> Callable[[str], str]:
-    """生成指定输出格式的 MD5 计算函数。"""
-    def compute_hash(input_str: str) -> str:
-        # 按 UTF-8 编码计算 MD5
-        md5 = hashlib.md5(input_str.encode('utf-8'))
-        if method == 'hexdigest':
-            return md5.hexdigest()
-        elif method == 'digest':
-            return md5.digest().decode('latin1')
-        raise ValueError(f"Unsupported method: {method}")
-
-    return compute_hash
-
-
-def _get_login_credentials() -> Tuple[str, str]:
-    """从环境变量读取登录用户名/密码。"""
     load_dotenv()
     username = os.getenv("LOGIN_USERNAME", "").strip()
     password = os.getenv("LOGIN_PASSWORD", "").strip()
-    if not username:
-        username = os.getenv("USERNAME", "").strip()
-    if not password:
-        password = os.getenv("PASSWORD", "").strip()
-    return username, password
 
-
-def _extract_auth_token(response: requests.Response, cookies_list: list) -> str:
-    """从登录响应中提取 AUTH_TOKEN，兼容多种返回结构与 cookie。"""
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = {}
-    token = payload.get("data")
-    if isinstance(token, dict):
-        token = (
-            token.get("token")
-            or token.get("authToken")
-            or token.get("AUTH_TOKEN")
-            or ""
-        )
-    if not token:
-        token = payload.get("token") or payload.get("authToken") or ""
-    if not token:
-        token = response.cookies.get("AUTH_TOKEN", "")
-    if not token:
-        for key, value in cookies_list:
-            if key == "AUTH_TOKEN" and value:
-                token = value
-                break
-    return token
-
-
-# 获取cookie
-def fetch_login_session():
-    """请求验证码并执行登录，返回可用 cookie 字典。"""
-    rs_id, code, path = save_api_data()
-    logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
-    md5_hex = create_output_method('hexdigest')
-    username, password = _get_login_credentials()
-    if not username or not password:
-        raise RuntimeError("登录失败：请在环境变量中设置 LOGIN_USERNAME 和 LOGIN_PASSWORD。")
     # 登录 payload 使用 MD5 加密后的密码
     payload = {
         "rsid": rs_id,
         "code": code,
-        "password": md5_hex(password),
+        "password": md5_hexdigest(password),
         "username": username,
     }
 
@@ -147,26 +93,21 @@ def fetch_login_session():
     url = f"https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do?_rs_id={rs_id}&_randomCode_={code}"
     login_response = session.post(url, headers=headers, data=payload)
     login_response.raise_for_status()
-    # print(login_response.json()['data'])
 
     # 从登录响应中获取所有 cookies
     cookies_list = list(session.cookies.items())
-    # print("cookies_list:")
-    # print(cookies_list)
 
     # 获取 AUTH_TOKEN
-    auth_token = _extract_auth_token(login_response, cookies_list)
+    auth_token = login_response.json().get("data")
     if not auth_token:
         logger.error("登录响应内容: %s", login_response.text)
         raise RuntimeError("登录失败：未获取到 AUTH_TOKEN，请检查用户名/密码或验证码识别结果。")
-    # print("AUTH_TOKEN:")
-    # print(auth_token)
+
     cookies = {
         'IGNORE-SESSION': '-',
         'AUTH_TOKEN': auth_token,
         'HWWAFSESTIME': cookies_list[1][1],
         'HWWAFSESID': cookies_list[0][1],
     }
-    logger.info("path: %s", path)
     logger.info("最终 cookie: %s", cookies)
     return cookies
