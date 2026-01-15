@@ -197,14 +197,14 @@ def main() -> None:
     rows = _fetch_list_rows(list_api, pagination)
     logger.info("列表接口返回条数=%s", len(rows))
 
-    # 5) 本地按日期筛选 real_train_code
+    # 5) 本地按 departureDateStart/End 或 day 筛选 real_train_code
     train_codes = filter_train_codes_by_day(
         rows,
         target_day,
-        start_time=run_config.get("departureDateStart"),
-        end_time=run_config.get("departureDateEnd"),
+        departureDateStart=run_config.get("departureDateStart"),
+        departureDateEnd=run_config.get("departureDateEnd"),
     )
-    logger.info("按日期 %s 筛选车次数量=%s", target_day, len(train_codes))
+    logger.info("按 departureDateStart/End 或 day=%s 筛选车次数量=%s", target_day, len(train_codes))
     logger.info("车次清单=%s", ",".join(train_codes))
 
     # 6) 导出 Excel（先拼接输出路径）
