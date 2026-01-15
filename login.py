@@ -11,6 +11,7 @@ from typing import Callable, Optional, Tuple
 
 import ddddocr
 import requests
+from dotenv import load_dotenv
 
 
 # 模块级日志器：输出验证码与登录流程日志
@@ -126,6 +127,16 @@ def create_output_method(method: str) -> Callable[[str], str]:
     return compute_hash
 
 
+def _get_login_credentials() -> Tuple[str, str]:
+    """从环境变量读取登录用户名/密码。"""
+    load_dotenv()
+    username = os.getenv("LOGIN_USERNAME", "").strip()
+    password = os.getenv("LOGIN_PASSWORD", "").strip()
+    if not username or not password:
+        raise RuntimeError("缺少登录账号信息，请在 .env 中设置 LOGIN_USERNAME 与 LOGIN_PASSWORD。")
+    return username, password
+
+
 # 获取cookie
 def fetch_login_session():
     """请求验证码并执行登录，返回登录响应与 session。"""
@@ -134,12 +145,13 @@ def fetch_login_session():
     code = captcha_result[1]
     logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
     md5_hex = create_output_method('hexdigest')
-    # 登录 payload 使用 MD5 加密后的固定密码示例
+    username, password = _get_login_credentials()
+    # 登录 payload 使用 MD5 加密后的密码
     payload = {
         "rsid": rs_id,
         "code": code,
-        "password": md5_hex('abc1234.'),
-        "username": "梁易高",
+        "password": md5_hex(password),
+        "username": username,
     }
 
     payload = json.dumps(payload)
