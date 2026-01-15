@@ -6,6 +6,8 @@ from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 
+import requests
+
 import login
 from fetcher import download_export_excel, fetch_train_rows, filter_train_codes_by_day
 
@@ -77,19 +79,18 @@ def _apply_departure_date(list_cfg: Dict[str, Any], run_cfg: Dict[str, Any], tar
     """将目标日期同步到列表请求 payload，确保仅查询当天数据。"""
     payload = list_cfg.get("payload_template", {})
     params = payload.get("params", {})
+    # 只允许带 departureDateStart，避免接口 bug 影响返回
     if params.get("departureDateStart"):
         run_cfg["departureDateStart"] = params.get("departureDateStart")
-    if params.get("departureDateEnd"):
-        run_cfg["departureDateEnd"] = params.get("departureDateEnd")
-    # 如果未设置出发日期，则补齐当天 00:00:00
-    if not params.get("departureDateStart"):
+    else:
         params["departureDateStart"] = f"{target_day} 00:00:00"
-    if run_cfg.get("departureDateStart") and not run_cfg.get("departureDateEnd"):
-        run_cfg["departureDateEnd"] = f"{target_day} 23:59:59"
+        run_cfg["departureDateStart"] = params["departureDateStart"]
+    # 结束时间仅用于本地筛选，统一使用当天 23:59:59
+    run_cfg["departureDateEnd"] = f"{target_day} 23:59:59"
     logger.info(
         "列表查询使用 departureDateStart=%s, departureDateEnd=%s",
         params.get("departureDateStart"),
-        params.get("departureDateEnd"),
+        run_cfg.get("departureDateEnd"),
     )
     # 避免配置中残留结束日期造成筛选冲突
     params.pop("departureDateEnd", None)
@@ -123,24 +124,35 @@ def _prepare_auth(config: Dict[str, Any]) -> None:
     _check_auth_headers("export_api", config["export_api"].get("headers", {}))
 
 
-def _fetch_list_rows(list_api: Dict[str, Any], pagination: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _fetch_list_rows(
+    list_api: Dict[str, Any],
+    pagination: Dict[str, Any],
+    session: requests.Session,
+) -> List[Dict[str, Any]]:
     """执行列表查询并返回合并后的 rows。"""
     # 1) 拉取列表数据（分页合并后的所有 rows）
     return fetch_train_rows(
         list_api["url"],
         list_api["headers"],
         list_api["payload_template"],
+        session=session,
         page_number_field=pagination.get("page_param", "pageNumber"),
         page_size_field=pagination.get("page_size_param", "pageSize"),
         rows_field=pagination.get("rows_field", "rows"),
         total_field=pagination.get("total_field", "total"),
         start_page_number=pagination.get("start_page", 0),
         retries=list_api.get("retries", 3),
+        retry_backoff_base=list_api.get("retry_backoff_base", 2.0),
         timeout=list_api.get("timeout", 30),
         sleep_between_pages=list_api.get("sleep_between_pages", 0.2),
     )
 
-def _download_export_excel(export_api: Dict[str, Any], out_path: str, train_codes: List[str]) -> str:
+def _download_export_excel(
+    export_api: Dict[str, Any],
+    out_path: str,
+    train_codes: List[str],
+    session: requests.Session,
+) -> str:
     """调用导出接口下载 Excel 并返回本地文件路径。"""
     # 1) 下载 Excel 并保存到本地
     saved = download_export_excel(
@@ -149,7 +161,9 @@ def _download_export_excel(export_api: Dict[str, Any], out_path: str, train_code
         real_train_codes=train_codes,
         out_path=out_path,
         flag=export_api.get("flag", "单表"),
+        session=session,
         retries=export_api.get("retries", 3),
+        retry_backoff_base=export_api.get("retry_backoff_base", 2.0),
         timeout=export_api.get("timeout", 60),
     )
     return saved
@@ -193,8 +207,11 @@ def main() -> None:
     _apply_departure_date(list_api, run_config, target_day)
     pagination = list_api.get("pagination", {})
 
+    # 4) 复用同一 Session，用于列表与导出请求
+    session = requests.Session()
+
     # 4) 拉取列表数据
-    rows = _fetch_list_rows(list_api, pagination)
+    rows = _fetch_list_rows(list_api, pagination, session)
     logger.info("列表接口返回条数=%s", len(rows))
 
     # 5) 本地按 departureDateStart/End 或 day 筛选 real_train_code
@@ -212,7 +229,7 @@ def main() -> None:
     output_dir = Path(run_config.get("output_dir", "data"))
     output_template = run_config.get("output_filename_template", "export_loaded_box_{day}.xlsx")
     out_path = output_dir / output_template.format(day=target_day)
-    saved_path = _download_export_excel(export_api, str(out_path), train_codes)
+    saved_path = _download_export_excel(export_api, str(out_path), train_codes, session)
     logger.info("已保存 Excel => %s", saved_path)
 
     # 7) 对下载的 Excel 进一步处理：按委托客户过滤并按实际订舱客户拆分

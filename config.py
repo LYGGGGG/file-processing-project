@@ -60,6 +60,7 @@ CONFIG: Dict[str, Any] = {
         "method": "POST",
         "timeout": 60,
         "retries": 3,
+        "retry_backoff_base": 1.5,
         # 接口业务标识
         "flag": "单表",
         # 与列表接口一致的鉴权头
