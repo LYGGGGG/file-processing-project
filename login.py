@@ -130,8 +130,8 @@ def create_output_method(method: str) -> Callable[[str], str]:
 def _get_login_credentials() -> Tuple[str, str]:
     """从环境变量读取登录用户名/密码。"""
     load_dotenv()
-    username = os.getenv("LOGIN_USERNAME", "").strip()
-    password = os.getenv("LOGIN_PASSWORD", "").strip()
+    username = os.getenv("USERNAME", "").strip()
+    password = os.getenv("PASSWORD", "").strip()
     return username, password
 
 
