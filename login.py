@@ -142,6 +142,8 @@ def fetch_login_session():
     logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
     md5_hex = create_output_method('hexdigest')
     username, password = _get_login_credentials()
+    if not username or not password:
+        raise RuntimeError("登录失败：请在环境变量中设置 LOGIN_USERNAME 和 LOGIN_PASSWORD。")
     # 登录 payload 使用 MD5 加密后的密码
     payload = {
         "rsid": rs_id,
@@ -160,6 +162,7 @@ def fetch_login_session():
     # 1. 首先执行登录 POST 请求
     url = f"https://bgwlgl.bbwport.com/api/bgwl-cloud-center/login.do?_rs_id={rs_id}&_randomCode_={code}"
     login_response = session.post(url, headers=headers, data=payload)
+    login_response.raise_for_status()
     # print(login_response.json()['data'])
 
     # 从登录响应中获取所有 cookies
@@ -169,6 +172,8 @@ def fetch_login_session():
 
     # 获取 AUTH_TOKEN
     auth_token = login_response.json().get("data")
+    if not auth_token:
+        raise RuntimeError("登录失败：未获取到 AUTH_TOKEN，请检查用户名/密码或验证码识别结果。")
     # print("AUTH_TOKEN:")
     # print(auth_token)
     cookies = {
@@ -177,8 +182,7 @@ def fetch_login_session():
         'HWWAFSESTIME': cookies_list[1][1],
         'HWWAFSESID': cookies_list[0][1],
     }
-    logger.info("path: ",path)
+    logger.info("path: %s", path)
     logger.info("最终 cookie: %s", cookies)
     return cookies
-
 
