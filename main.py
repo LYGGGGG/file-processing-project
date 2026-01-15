@@ -176,7 +176,7 @@ def _split_export_excel(processing: Dict[str, Any], input_path: str) -> None:
     logger.info("实际订舱客户拆分输出=%s", list(outputs.values()))
 
 
-def run_main() -> None:
+def main() -> None:
     """主流程入口：读取配置 -> 拉取列表 -> 筛选 -> 下载 Excel。"""
     # 0) 初始化配置
     config = CONFIG
@@ -221,4 +221,4 @@ def run_main() -> None:
 
 
 if __name__ == "__main__":
-    run_main()
+    main()
