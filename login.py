@@ -168,7 +168,7 @@ def fetch_login_session():
     # print(cookies_list)
 
     # 获取 AUTH_TOKEN
-    auth_token = login_response.json()['data']
+    auth_token = login_response.json().get("data")
     # print("AUTH_TOKEN:")
     # print(auth_token)
     cookies = {
