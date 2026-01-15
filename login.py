@@ -17,52 +17,6 @@ from dotenv import load_dotenv
 # 模块级日志器：输出验证码与登录流程日志
 logger = logging.getLogger(__name__)
 
-# 验证码缓存有效期（秒），用于减少重复请求验证码接口
-CAPTCHA_CACHE_TTL_SECONDS = int(os.getenv("CAPTCHA_TTL_SECONDS", "60"))
-# 缓存结构: rs_id/code/path/fetched_at
-_CAPTCHA_CACHE: dict = {}
-
-
-def _get_cached_captcha() -> Optional[Tuple[str, str, Optional[Path]]]:
-    """读取验证码缓存，若超时则返回 None。"""
-    if not _CAPTCHA_CACHE:
-        return None
-    fetched_at = _CAPTCHA_CACHE.get("fetched_at")
-    if fetched_at is None:
-        return None
-    age = time.time() - fetched_at
-    if age >= CAPTCHA_CACHE_TTL_SECONDS:
-        # 超过 TTL 则丢弃缓存
-        logger.info("验证码缓存已过期: age=%.2fs ttl=%ss", age, CAPTCHA_CACHE_TTL_SECONDS)
-        return None
-    logger.info("使用缓存验证码: age=%.2fs ttl=%ss", age, CAPTCHA_CACHE_TTL_SECONDS)
-    return (
-        _CAPTCHA_CACHE.get("rs_id", ""),
-        _CAPTCHA_CACHE.get("code", ""),
-        _CAPTCHA_CACHE.get("path"),
-    )
-
-
-def get_captcha_data(*, force_refresh: bool = False) -> Tuple[str, str, Optional[Path]]:
-    """读取验证码数据，必要时重新请求并更新缓存。"""
-    if not force_refresh:
-        cached = _get_cached_captcha()
-        if cached:
-            return cached
-    # 强制刷新或缓存失效时重新请求验证码
-    rs_id, code, path = save_api_data()
-    _CAPTCHA_CACHE.clear()
-    _CAPTCHA_CACHE.update(
-        {
-            "rs_id": rs_id,
-            "code": code,
-            "path": path,
-            "fetched_at": time.time(),
-        }
-    )
-    return rs_id, code, path
-
-
 def save_api_data() -> Tuple[str, str, Optional[Path]]:
     """获取验证码信息并保存图片，返回(rs_id, 识别码, 保存路径)。"""
     show_value = int(time.time() * 1000)
@@ -144,7 +98,6 @@ def _extract_auth_token(response: requests.Response, cookies_list: list) -> str:
     try:
         payload = response.json()
     except ValueError:
-        logger.warning("登录响应无法解析为 JSON。")
         payload = {}
     token = payload.get("data")
     if isinstance(token, dict):
@@ -169,7 +122,7 @@ def _extract_auth_token(response: requests.Response, cookies_list: list) -> str:
 # 获取cookie
 def fetch_login_session():
     """请求验证码并执行登录，返回可用 cookie 字典。"""
-    rs_id, code, path = get_captcha_data()
+    rs_id, code, path = save_api_data()
     logger.info("登录使用验证码: rs_id=%s code=%s", rs_id, code)
     md5_hex = create_output_method('hexdigest')
     username, password = _get_login_credentials()
