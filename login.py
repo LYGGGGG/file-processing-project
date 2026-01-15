@@ -130,9 +130,40 @@ def create_output_method(method: str) -> Callable[[str], str]:
 def _get_login_credentials() -> Tuple[str, str]:
     """从环境变量读取登录用户名/密码。"""
     load_dotenv()
-    username = os.getenv("USERNAME", "").strip()
-    password = os.getenv("PASSWORD", "").strip()
+    username = os.getenv("LOGIN_USERNAME", "").strip()
+    password = os.getenv("LOGIN_PASSWORD", "").strip()
+    if not username:
+        username = os.getenv("USERNAME", "").strip()
+    if not password:
+        password = os.getenv("PASSWORD", "").strip()
     return username, password
+
+
+def _extract_auth_token(response: requests.Response, cookies_list: list) -> str:
+    """从登录响应中提取 AUTH_TOKEN，兼容多种返回结构与 cookie。"""
+    try:
+        payload = response.json()
+    except ValueError:
+        logger.warning("登录响应无法解析为 JSON。")
+        payload = {}
+    token = payload.get("data")
+    if isinstance(token, dict):
+        token = (
+            token.get("token")
+            or token.get("authToken")
+            or token.get("AUTH_TOKEN")
+            or ""
+        )
+    if not token:
+        token = payload.get("token") or payload.get("authToken") or ""
+    if not token:
+        token = response.cookies.get("AUTH_TOKEN", "")
+    if not token:
+        for key, value in cookies_list:
+            if key == "AUTH_TOKEN" and value:
+                token = value
+                break
+    return token
 
 
 # 获取cookie
@@ -171,8 +202,9 @@ def fetch_login_session():
     # print(cookies_list)
 
     # 获取 AUTH_TOKEN
-    auth_token = login_response.json().get("data")
+    auth_token = _extract_auth_token(login_response, cookies_list)
     if not auth_token:
+        logger.error("登录响应内容: %s", login_response.text)
         raise RuntimeError("登录失败：未获取到 AUTH_TOKEN，请检查用户名/密码或验证码识别结果。")
     # print("AUTH_TOKEN:")
     # print(auth_token)
@@ -185,4 +217,3 @@ def fetch_login_session():
     logger.info("path: %s", path)
     logger.info("最终 cookie: %s", cookies)
     return cookies
-
